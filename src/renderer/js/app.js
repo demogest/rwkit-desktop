@@ -2,6 +2,9 @@
 import { $, $$, esc, clone, stable, samePath, baseName, debounce, KIND, KIND_ICON, CAT, LV, POS, ROLE, PLACE, SCOPE, MAX_BYTES, fmtSize, fmtTime, hue, icon, pill, srcPill, toast, copyText, modal, ask, form, layers, menu, closeMenu } from './util.js';
 import { diffHtml } from './diff.js';
 import { editorHtml, bindEditor, makeEd, editOp, footHtml, pageOf, F, listHtml } from './editors.js';
+import { initUpdates, onUpdateEvent, sideNotice, updatesClick, updateFlow } from './updates.js';
+import { initTavern, onTavernEvent, sideStatus, tavernCard, tavernClick, setupFlow, installFlow, installSource, tavernState } from './tavern.js';
+import { initWorkshop, onWorkshopEvent, projectsChanged, remoteNewer, sideEntry, crumb as wsCrumb, renderWorkshop, projectCard, workshopClick, workshopInput, workshopChange, workshopSeg, serverFlow, loginFlow, workshopState } from './workshop.js';
 
 const host = window.rwkit;
 const api = (route, body) => host.api(route, body);
@@ -10,7 +13,7 @@ async function apiOk(route, body) { const r = await api(route, body); if (r && r
 // ---------- 状态 ----------
 const S = {
   env: null, app: null, settings: {}, projects: [], loose: [],
-  sel: null, src: {}, tab: 'overview',
+  view: 'project', sel: null, src: {}, tab: 'overview',
   content: { key: null }, ed: null, edCleanup: null, edSel: {}, navq: '', navClosed: new Set(),
   pf: null, pfCleanup: null,
   diff: { key: null }, base: {}, dopen: new Set(),
@@ -55,35 +58,40 @@ function render() {
 function renderSide() {
   const collapsed = S.settings.sidebar === false;
   let h = `<div class="side-top">${collapsed ? `<button class="btn primary icon needs-idle" data-act="open-menu" title="打开或新建">${icon('plus')}</button>` : `<button class="btn primary block needs-idle" data-act="open-menu">${icon('plus')}打开或新建…</button>`}</div>`;
+  h += `<div class="plist-side ws-side">${sideEntry(collapsed, S.view === 'workshop')}</div>`;
   if (S.projects.length) {
     if (!collapsed) h += `<div class="side-sec">项目 <span class="count">${S.projects.length}</span></div>`;
     h += '<div class="plist-side">';
     for (const p of S.projects) {
-      h += `<div class="ps${p.id === S.sel ? ' sel' : ''}" data-act="select" data-id="${esc(p.id)}" title="${esc(p.name)}">
+      const up = remoteNewer(p);
+      h += `<div class="ps${p.id === S.sel && S.view !== 'workshop' ? ' sel' : ''}" data-act="select" data-id="${esc(p.id)}" title="${esc(p.name)}${up ? '（创意工坊有新版本 v' + up + '）' : ''}">
         ${thumb(p, 'sm')}
         <div class="ps-body"><div class="ps-name">${esc(p.name)}</div>
         <div class="ps-sub"><span>${esc(CAT[p.category] || p.category || '')} · v${esc(p.version ?? '?')}</span>${p.folders.length ? `<span title="项目文件夹">${icon('folder', 'xs')}${p.folders.length}</span>` : ''}${p.packs.length ? `<span title="离线包">${icon('package', 'xs')}${p.packs.length}</span>` : ''}</div></div>
-        ${p.drafts ? `<span class="dot draft" title="有未保存的修改"></span>` : `<span class="dot ${p.level}" title="${esc(LV[p.level].t)}"></span>`}</div>`;
+        ${up ? `<span class="ws-up" title="创意工坊有新版本 v${up}">${icon('arrowUp', 'xs')}</span>` : ''}${p.drafts ? `<span class="dot draft" title="有未保存的修改"></span>` : `<span class="dot ${p.level}" title="${esc(LV[p.level].t)}"></span>`}</div>`;
     }
     h += '</div>';
   }
   if (S.loose.length) {
     if (!collapsed) h += `<div class="side-sec">无法读取 <span class="count">${S.loose.length}</span></div>`;
-    h += '<div class="plist-side">' + S.loose.map(l => `<div class="ps${samePath(l.path, S.sel) ? ' sel' : ''}" data-act="select-loose" data-path="${esc(l.path)}" title="${esc(l.path)}"><div class="thumb sm" data-ph="!" style="--h:0"></div><div class="ps-body"><div class="ps-name">${esc(l.file)}</div><div class="ps-sub">读取失败</div></div><span class="dot error"></span></div>`).join('') + '</div>';
+    h += '<div class="plist-side">' + S.loose.map(l => `<div class="ps${samePath(l.path, S.sel) && S.view !== 'workshop' ? ' sel' : ''}" data-act="select-loose" data-path="${esc(l.path)}" title="${esc(l.path)}"><div class="thumb sm" data-ph="!" style="--h:0"></div><div class="ps-body"><div class="ps-name">${esc(l.file)}</div><div class="ps-sub">读取失败</div></div><span class="dot error"></span></div>`).join('') + '</div>';
   }
   const rk = S.env?.rwkit;
-  h += `<div class="side-foot">${collapsed ? `<span class="dot ${rk?.ok ? 'ok' : 'error'}" title="${rk?.ok ? 'rwkit 已就绪' : 'rwkit 载入失败'}"></span>` : `
+  h += `<div class="side-foot">${sideNotice(collapsed)}${collapsed ? `<span class="dot ${rk?.ok ? 'ok' : 'error'}" title="${rk?.ok ? 'rwkit 已就绪' : 'rwkit 载入失败'}"></span>${sideStatus(true)}` : `
+    ${sideStatus(false)}
     <div class="row"><span class="dot ${rk?.ok ? 'ok' : 'error'}"></span><span class="ell">${rk ? (rk.ok ? 'rwkit 已就绪 · ' + esc(rk.label || '') : 'rwkit 载入失败') : ''}</span></div>
     <div class="row muted">v${esc(S.app?.version || '')} · Electron ${esc(S.app?.electron || '')}</div>`}</div>`;
   $('#side').innerHTML = h;
 }
 function renderCrumb() {
+  if (S.view === 'workshop') { $('#crumb').innerHTML = wsCrumb(); return; }
   const p = curProject(), s = curSrc(p);
   $('#crumb').innerHTML = p ? `<span class="ell">${esc(p.name)}</span>${s ? `<span class="sep">/</span><span class="ell muted">${esc(s.file)}</span>` : ''}` : '';
 }
 function renderMain() {
   const m = $('#main');
   if (!S.env) return;
+  if (S.view === 'workshop') { teardownEditor(); teardownPf(true); document.body.classList.remove('has-draftbar'); renderWorkshop(); return; }
   const loose = S.loose.find(l => samePath(l.path, S.sel));
   if (loose) { teardownEditor(); m.innerHTML = `<div class="page">${rwkitNotice()}${looseView(loose)}</div>`; return; }
   const p = curProject();
@@ -115,6 +123,7 @@ function welcome() {
         <button class="btn needs-idle" data-act="new-project">${icon('folderPlus')}新建项目…</button>
         <button class="btn ghost needs-idle" data-act="example">${icon('sparkles')}生成示例</button>
       </div>
+      <div class="row center" style="margin-top:12px"><button class="btn ghost" data-act="ws-open">${icon('globe')}浏览创意工坊，下载别人的作品</button></div>
     </div>
     <div class="wsteps">
       ${[['pencil', '直接编辑', '打开 .rwpack 就能改：世界书条目、正则、脚本、项目资料都有对应的表单，修改先存在草稿里。'], ['save', '保存为新版本', '保存时自动升版本号、重算大小与 SHA-256，工坊可以直接导入。'], ['folder', '或者解包编辑', '需要用 VS Code 大量修改时，解包成项目文件夹；保存文件后这里自动重新检查。'], ['wrench', '一键修复', '手动改过 .rwpack、导入时报“校验失败”？打开它点“修复”即可。']].map(([i, t, d]) => `<div class="wstep">${icon(i)}<b>${t}</b><span>${d}</span></div>`).join('')}
@@ -271,22 +280,22 @@ async function savePf() {
   render();
 }
 function sideCards(p, s) {
-  return nextCard(p) + versionsCard(p, s) + limitsCard(s);
+  return nextCard(p) + tavernCard(p) + projectCard(p) + versionsCard(p, s) + limitsCard(s);
 }
 function nextCard(p) {
   const f = p.folders[0], k = p.packs.find(x => !x.draft) || p.packs[0], d = p.packs.find(x => x.draft);
   let steps, cur, cta = '';
   if (d) {
-    steps = [['编辑', '在“编辑内容”里修改'], ['保存为新版本', '保存草稿，自动升版本号'], ['导入工坊', '在工坊“本地”页导入']]; cur = 1;
+    steps = [['编辑', '在“编辑内容”里修改'], ['保存为新版本', '保存草稿，自动升版本号'], ['导入工坊', '在工坊“本地”页导入，或安装到 SillyTavern']]; cur = 1;
     cta = `<button class="btn primary block needs-idle" data-act="draft-save" data-path="${esc(d.path)}">${icon('save')}保存修改</button>`;
   } else if (f) {
-    steps = [['编辑', f.level === 'error' ? '项目文件夹有错误，需要修正' : '直接编辑，或用 VS Code 修改'], ['打包', !k ? '还没有打过包' : f.vsNewest?.same ? '已打包为 ' + k.file : '有未打包的改动'], ['导入工坊', '在工坊“本地”页导入']];
+    steps = [['编辑', f.level === 'error' ? '项目文件夹有错误，需要修正' : '直接编辑，或用 VS Code 修改'], ['打包', !k ? '还没有打过包' : f.vsNewest?.same ? '已打包为 ' + k.file : '有未打包的改动'], ['导入工坊', '在工坊“本地”页导入，或安装到 SillyTavern']];
     cur = f.level === 'error' ? 0 : (!k || !f.vsNewest?.same) ? 1 : 2;
     cta = cur === 0 ? `<button class="btn primary block" data-act="tab" data-tab="checks">${icon('alert')}查看问题</button>`
       : cur === 1 ? `<button class="btn primary block needs-idle" data-act="pack" data-path="${esc(f.path)}">${icon('pack')}${bumpOn(f) ? '打包并升为 v' + esc(f.bumpTarget?.version) : '打包 v' + esc(f.version)}</button>`
         : `<button class="btn block" data-act="reveal" data-path="${esc(k.path)}">${icon('external')}显示离线包位置</button>`;
   } else if (k) {
-    steps = [['编辑', k.level === 'fix' ? '先修复校验' : '直接编辑内容，或解包后编辑'], ['保存为新版本', '自动升版本号与重算校验'], ['导入工坊', '在工坊“本地”页导入']];
+    steps = [['编辑', k.level === 'fix' ? '先修复校验' : '直接编辑内容，或解包后编辑'], ['保存为新版本', '自动升版本号与重算校验'], ['导入工坊', '在工坊“本地”页导入，或安装到 SillyTavern']];
     cur = 0;
     cta = k.level === 'fix' ? `<button class="btn warnb block needs-idle" data-act="fix" data-path="${esc(k.path)}">${icon('wrench')}修复</button>` : `<button class="btn primary block" data-act="tab" data-tab="edit">${icon('pencil')}开始编辑</button>`;
   } else return '';
@@ -641,9 +650,10 @@ function logHtml(p) {
 
 // ---------- 操作 ----------
 let refreshTimer = null;
-async function refresh() { try { applyView(await api('projects')); render(); } catch (e) { console.warn(e); } }
+async function refresh() { try { applyView(await api('projects')); render(); projectsChanged(); } catch (e) { console.warn(e); } }
 const refreshSoon = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 150); };
 async function select(id) {
+  if (S.view === 'workshop') { S.view = 'project'; if (id !== S.sel) { S.sel = id; S.result = S.result?.pid === id ? S.result : null; teardownEditor(); S.pf = null; S.diff = { key: null }; } render(); return; }
   if (id === S.sel) return;
   if (!(await confirmLeaveEditor())) return;
   if (S.pf?.dirty && !(await confirmLeavePf())) return;
@@ -673,7 +683,7 @@ async function openPaths(paths) {
     applyView(r);
     for (const e of r.errors || []) toast(e.message, 'warn', 6000);
     const first = r.opened?.find(x => x.id);
-    if (first) { S.sel = first.id; S.src[first.id] = first.path; teardownEditor(); S.pf = null; const f = findByPath(first.path); S.tab = f?.s.level === 'error' || f?.s.level === 'fix' ? 'checks' : 'overview'; }
+    if (first) { S.view = 'project'; S.sel = first.id; S.src[first.id] = first.path; teardownEditor(); S.pf = null; const f = findByPath(first.path); S.tab = f?.s.level === 'error' || f?.s.level === 'fix' ? 'checks' : 'overview'; }
     render();
     if (r.opened?.length) toast(r.opened.length > 1 ? `已打开 ${r.opened.length} 项` : '已打开 ' + baseName(r.opened[0].path), 'ok', 2000);
   } catch (e) { toast(e.message, 'error'); }
@@ -694,7 +704,7 @@ async function runAction(action, path, opts = {}) {
   const reveal = p => `<button class="btn sm" data-act="reveal" data-path="${esc(p)}">${icon('external')}显示位置</button>`;
   const cp = p => `<button class="btn sm ghost" data-act="copy" data-text="${esc(p)}">${icon('copy')}复制路径</button>`;
   let pidAfter = pid;
-  const focus = p => { const f = findByPath(p); if (f) { S.sel = f.p.id; S.src[f.p.id] = f.s.path; pidAfter = f.p.id; teardownEditor(); S.pf = null; } };
+  const focus = p => { const f = findByPath(p); if (f) { S.view = 'project'; S.sel = f.p.id; S.src[f.p.id] = f.s.path; pidAfter = f.p.id; teardownEditor(); S.pf = null; } };
   if (!r.ok) {
     S.result = { pid, ok: false, title: TITLE[action] + '失败', lines: [r.error], actions: r.loc ? [`<button class="btn sm primary" data-act="code" data-path="${esc(r.loc.file)}" data-root="${esc(path)}" data-line="${r.loc.line}" data-col="${r.loc.col}">${icon('code')}打开 ${esc(r.loc.rel)}</button>`] : [] };
     if (S.tab === 'edit') S.tab = 'checks';
@@ -803,6 +813,7 @@ function rowMenu(anchor, path) {
     items.push({ label: '修复', icon: 'wrench', disabled: s.level !== 'fix', onClick: () => runAction('fix', path) }, { label: s.level === 'fix' ? '修复并升版本号' : '升版本号另存', icon: 'arrowUp', disabled: !!s.fatal, onClick: () => runAction('fix', path, { bump: true }) },
       { label: '解包', icon: 'unpack', disabled: !!s.fatal, onClick: () => runAction('unpack', path) }, { label: '重新检查', icon: 'refresh', onClick: () => runAction('check', path) }, '-', { label: '显示位置', icon: 'external', onClick: () => api('reveal', { path }) });
   }
+  items.push('-', { label: '安装到 SillyTavern', icon: 'tavern', disabled: !!s.draft || !!s.fatal || s.level === 'error', hint: s.draft ? '先保存修改' : s.level === 'error' ? '先修正错误' : '', onClick: () => installFlow(path) });
   menu(anchor, items, { align: 'right', width: 220 });
 }
 async function discardDraft(path) {
@@ -820,10 +831,15 @@ function settingsFlow() {
     <div class="set-sec"><h4>rwkit.mjs</h4><div class="kv"><div class="k">正在使用</div><div class="v"><span class="pill ${rk.ok ? 'ok' : 'error'}">${esc(rk.label || '')}</span> <span class="mono small" style="word-break:break-all">${esc(rk.file || '')}</span></div>${rk.error ? `<div class="k">问题</div><div class="v" style="color:var(--err)">${esc(rk.error)}</div>` : ''}</div>
       <div class="fhint">所有检查、修复与打包都直接调用 rwkit.mjs。工具包更新后，可以选择新的 rwkit.mjs，或把它放在程序旁边。</div>
       <div class="row" style="margin-top:8px"><button class="btn sm" data-set="pick-rwkit">${icon('file')}选择 rwkit.mjs…</button>${s.rwkitPath ? `<button class="btn sm ghost" data-set="reset-rwkit">${icon('undo')}恢复内置版本</button>` : ''}</div></div>
+    <div class="set-sec"><h4>创意工坊</h4><div class="kv"><div class="k">服务器</div><div class="v"><span class="mono small">${esc(workshopState().st?.base || '')}</span></div><div class="k">账号</div><div class="v">${workshopState().st?.user ? esc(workshopState().st.user.name) + '（Discord）' : '未登录'}</div></div>
+      <div class="row" style="margin-top:8px"><button class="btn sm" data-set="ws-server">${icon('globe')}服务器与下载位置…</button>${workshopState().st?.user ? '' : `<button class="btn sm discord" data-set="ws-login">${icon('discord')}使用 Discord 登录</button>`}</div></div>
+    <div class="set-sec"><h4>SillyTavern</h4><div class="kv"><div class="k">安装桥</div><div class="v">${tavernState().st?.running ? (tavernState().st.connected ? '已连接' + (tavernState().st.client?.character ? '（当前角色：' + esc(tavernState().st.client.character) + '）' : '') : '已启用，等待 SillyTavern 连接') : '未启用'} <span class="muted small">127.0.0.1:${esc(tavernState().st?.port || '')}</span></div></div>
+      <div class="row" style="margin-top:8px"><button class="btn sm" data-set="st-setup">${icon('tavern')}连接设置…</button></div><div class="fhint">通过酒馆助手脚本“rwkit 安装桥”，把离线包交给 SillyTavern 里的创意工坊安装。</div></div>
     <div class="set-sec"><h4>关于</h4><div class="kv">
       <div class="k">版本</div><div class="v">rwkit 离线包工具 ${esc(S.app.version)} · Electron ${esc(S.app.electron)} · Node ${esc(S.app.node)}</div>
       <div class="k">编辑器</div><div class="v">${S.env.editor ? '已找到 VS Code' : '没有找到 VS Code（“用 VS Code 打开”会改用系统默认程序）'}</div>
-      <div class="k">数据文件夹</div><div class="v"><span class="mono small">${esc(S.app.userData)}</span> <button class="btn xs ghost" data-set="open-data">${icon('folderOpen')}打开</button></div></div></div>`,
+      <div class="k">数据文件夹</div><div class="v"><span class="mono small">${esc(S.app.userData)}</span> <button class="btn xs ghost" data-set="open-data">${icon('folderOpen')}打开</button></div></div>
+      <div class="row" style="margin-top:10px"><button class="btn sm" data-set="up-check">${icon('arrowUp')}检查更新…</button></div></div>`,
     foot: '<div class="spacer"></div><button class="btn primary" data-m="close">完成</button>' });
   m.el.addEventListener('change', async e => { if (e.target.dataset.bind === 'backup') { S.settings = (await api('settings', { backup: e.target.checked })).settings; render(); } });
   m.el.addEventListener('click', async e => {
@@ -833,6 +849,10 @@ function settingsFlow() {
     if (a.dataset.set === 'pick-rwkit') { const p = (await pick('rwkit'))[0]; if (!p) return; const r = await api('settings', { rwkitPath: p }); S.settings = r.settings; S.env.rwkit = r.rwkit; m.close(); toast(r.rwkit.ok ? '已改用 ' + p : 'rwkit.mjs 载入失败：' + r.rwkit.error, r.rwkit.ok ? 'ok' : 'error', 5000); await refresh(); }
     if (a.dataset.set === 'reset-rwkit') { const r = await api('settings', { rwkitPath: '' }); S.settings = r.settings; S.env.rwkit = r.rwkit; m.close(); toast('已恢复内置的 rwkit.mjs', 'ok'); await refresh(); }
     if (a.dataset.set === 'open-data') api('openPath', { path: S.app.userData });
+    if (a.dataset.set === 'ws-server') { m.close(); serverFlow(); }
+    if (a.dataset.set === 'st-setup') { m.close(); setupFlow(); }
+    if (a.dataset.set === 'up-check') { m.close(); updateFlow(); }
+    if (a.dataset.set === 'ws-login') { m.close(); loginFlow(); }
   });
 }
 function helpFlow() {
@@ -845,6 +865,15 @@ function helpFlow() {
     <li>正则自带测试区：粘贴一段聊天文字，实时显示匹配位置与替换结果；HTML 页面可以直接预览。</li>
     <li>脚本保存前会检查语法，出错时点提示跳到对应行。</li>
     <li>“检查结果”里的每条提示都可以点“去修改”，直接跳到对应的条目。</li></ul>
+    <h4>创意工坊（在线）</h4>
+    <ul><li>左侧“创意工坊”可以浏览、搜索工坊作品，下载为 .rwpack 后直接在这里打开查看与修改。下载不会执行其中的脚本。</li>
+    <li>用 Discord 登录后，可以把本地项目发布到工坊、为自己的作品上传新版本、提交审核、更换封面、下架或删除。首次发布需要审核；已通过审核的作品，之后上传的新版本会立即发布。</li>
+    <li>打开的项目如果在工坊上有更新的版本，项目列表里会显示 ${icon('arrowUp', 'xs')} 标记，概览页的“创意工坊”卡片可以一键下载。</li>
+    <li>工坊上传内容不超过 4 MB，封面只支持 PNG / JPEG / WebP 且不超过 3 MB。</li></ul>
+    <h4>安装到 SillyTavern</h4>
+    <ul><li>先在“连接设置”里保存“rwkit 安装桥”脚本，在 SillyTavern 的酒馆助手 → 脚本库 → 全局脚本里导入并启用；SillyTavern 页面开着时，左下角显示“已连接”。</li>
+    <li>概览页的“SillyTavern”卡片、版本菜单与工坊作品页都可以“安装到 SillyTavern”：离线包交给 SillyTavern 里的创意工坊导入、检查并安装，与在工坊里点“安装”相同，之后也能在工坊“本地”页管理。</li>
+    <li>已经安装过的作品会先卸载旧版本再安装；工坊里缓存了更高版本时，需要先提高本地项目的版本号。</li></ul>
     <h4>状态的含义</h4>
     <table class="tbl"><tr><td>${pill('ok')}</td><td>工坊可以导入和安装。</td></tr><tr><td>${pill('warn', '有提示')}</td><td>能导入，但内容可能不会按预期工作，例如条目永远不会触发、正则页面会被酒馆改写。</td></tr>
     <tr><td>${pill('fix')}</td><td>大小 / SHA-256 等校验与内容不一致，点“修复”即可。</td></tr><tr><td>${pill('error', '有错误')}</td><td>格式不对或工坊安装会失败，需要改正。</td></tr>
@@ -909,9 +938,20 @@ async function tutorialFlow(anchor) {
 
 // ---------- 事件 ----------
 document.addEventListener('click', async e => {
+  if (workshopSeg(e)) return;
   const t = e.target.closest('[data-act]');
   if (!t || t.disabled) return;
   const act = t.dataset.act, p = curProject();
+  if (act.startsWith('up-') && updatesClick(act)) return;
+  if (act.startsWith('st-') && await tavernClick(act, t, e)) return;
+  if (act.startsWith('ws-')) {
+    // 离开项目页前确认未保存的编辑
+    if (S.view !== 'workshop' && ['ws-open', 'ws-detail', 'ws-goto-mine'].includes(act)) {
+      if (!(await confirmLeaveEditor())) return;
+      if (S.pf?.dirty && !(await confirmLeavePf())) return;
+    }
+    if (await workshopClick(act, t, e)) return;
+  }
   switch (act) {
     case 'toggle-sidebar': S.settings = (await api('settings', { sidebar: S.settings.sidebar === false })).settings; render(); break;
     case 'open-menu': openMenu(t); break;
@@ -919,11 +959,11 @@ document.addEventListener('click', async e => {
     case 'open-folders': openPaths(await pick('folders')); break;
     case 'new-project': newProjectFlow(); break;
     case 'example': exampleFlow(); break;
-    case 'help': menu(t, [{ label: '扩展编写教程', icon: 'book', kbd: 'F1', hint: '世界书、正则、脚本、预设、数据等全部内容的写法', onClick: () => tutorialFlow() }, { label: '使用说明', icon: 'help', onClick: helpFlow }], { align: 'right', width: 300 }); break;
+    case 'help': menu(t, [{ label: '扩展编写教程', icon: 'book', kbd: 'F1', hint: '世界书、正则、脚本、预设、数据等全部内容的写法', onClick: () => tutorialFlow() }, { label: '使用说明', icon: 'help', onClick: helpFlow }, '-', { label: '检查更新…', icon: 'arrowUp', hint: '当前版本 v' + (S.app?.version || ''), onClick: () => updateFlow() }], { align: 'right', width: 300 }); break;
     case 'tutorial': tutorialFlow(t.dataset.sec); break;
     case 'settings': settingsFlow(); break;
     case 'select': select(t.dataset.id); break;
-    case 'select-loose': S.sel = t.dataset.path; render(); break;
+    case 'select-loose': S.view = 'project'; S.sel = t.dataset.path; render(); break;
     case 'remove-loose': applyView(await api('remove', { path: t.dataset.path })); S.sel = null; render(); break;
     case 'src-menu': srcMenu(t); break;
     case 'src': if (!e.target.closest('[data-act="row-menu"]')) setSource(t.dataset.path); break;
@@ -962,7 +1002,8 @@ document.addEventListener('click', async e => {
         if (s.draft) items.push({ label: '解包（不含未保存的修改）', icon: 'unpack', onClick: () => runAction('unpack', s.path) });
         items.push({ label: '显示位置', icon: 'external', onClick: () => api('reveal', { path: s.path }) });
       }
-      items.push({ label: '重新检查', icon: 'refresh', kbd: 'F5', onClick: () => runAction('check', s.path) }, '-', { label: '从列表移除项目', icon: 'x', onClick: () => removeFlow(p.id) });
+      const ins = installSource(p);
+      items.push({ label: '重新检查', icon: 'refresh', kbd: 'F5', onClick: () => runAction('check', s.path) }, '-', { label: '安装到 SillyTavern', icon: 'tavern', disabled: !ins, hint: ins ? ins.file : '先保存修改或修正错误', onClick: () => installFlow(ins.path) }, '-', { label: '从列表移除项目', icon: 'x', onClick: () => removeFlow(p.id) });
       menu(t, items, { align: 'right', width: 240 });
       break;
     }
@@ -1004,9 +1045,11 @@ document.addEventListener('click', async e => {
   }
 });
 document.addEventListener('change', e => {
+  if (workshopChange(e)) return;
   const t = e.target;
   if (t.dataset.act === 'base') { const s = curSrc(); const o = S.cmpOpts?.[Number(t.value)]; if (s && o) { S.base[s.path] = { path: o.path, saved: !!o.saved }; renderBody(curProject(), s); } }
 });
+document.addEventListener('input', e => { workshopInput(e); });
 document.addEventListener('input', debounce(e => {
   if (e.target.id === 'navq') { S.navq = e.target.value; const s = curSrc(); if (s) renderNav(s); }
 }, 120));
@@ -1014,12 +1057,13 @@ document.addEventListener('keydown', e => {
   const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
   if (e.key === 'Escape') { closeMenu(); if (layers.length) { const m = layers[layers.length - 1]; if (m.closable) m.close(null); } return; }
   if (layers.length) return;
+  if (e.key === 'Enter' && e.target.matches?.('.wcard')) { e.preventDefault(); e.target.click(); return; }
   if (mod && k === 's') { e.preventDefault(); if (S.tab === 'edit' && S.ed) saveEditor(); else if (S.tab === 'overview' && S.pf?.dirty) savePf(); return; }
   if (mod && k === 'o') { e.preventDefault(); (async () => openPaths(await pick(e.shiftKey ? 'folders' : 'packs')))(); return; }
   if (mod && k === 'n') { e.preventDefault(); newProjectFlow(); return; }
   if (e.key === 'F1') { e.preventDefault(); tutorialFlow(); return; }
   if (mod && k === 'b') { e.preventDefault(); $('[data-act="toggle-sidebar"]')?.click(); return; }
-  if (mod && /^[1-5]$/.test(e.key) && curProject()) { e.preventDefault(); $(`[data-act="tab"][data-tab="${['overview', 'edit', 'checks', 'changes', 'log'][Number(e.key) - 1]}"]`)?.click(); return; }
+  if (mod && /^[1-5]$/.test(e.key) && curProject() && S.view !== 'workshop') { e.preventDefault(); $(`[data-act="tab"][data-tab="${['overview', 'edit', 'checks', 'changes', 'log'][Number(e.key) - 1]}"]`)?.click(); return; }
   if (e.key === 'F5') { e.preventDefault(); const s = curSrc(); if (s && !S.busy) runAction('check', s.path); }
 });
 
@@ -1045,9 +1089,12 @@ window.addEventListener('drop', e => {
 // ---------- 启动 ----------
 host.on(async (type, data) => {
   if (type === 'changed') refreshSoon();
+  if (type === 'workshop') onWorkshopEvent(data);
+  if (type === 'tavern') onTavernEvent(data);
+  if (type === 'update') onUpdateEvent(data);
   if (type === 'opened') {
     await refresh();
-    if (data?.select) { if (await confirmLeaveEditor()) { S.sel = data.select; if (data.path) S.src[data.select] = data.path; teardownEditor(); S.pf = null; S.tab = 'overview'; render(); } }
+    if (data?.select) { if (await confirmLeaveEditor()) { S.view = 'project'; S.sel = data.select; if (data.path) S.src[data.select] = data.path; teardownEditor(); S.pf = null; S.tab = 'overview'; render(); } }
     for (const x of data?.errors || []) toast(x.message, 'warn', 6000);
   }
   if (type === 'close-request') {
@@ -1068,6 +1115,10 @@ async function init() {
     if (pending?.select) { S.sel = pending.select; if (pending.path) S.src[pending.select] = pending.path; }
     for (const x of pending?.errors || []) toast(x.message, 'warn', 6000);
     render();
+    const ctx = { S, api, apiOk, render, renderSide, renderMain, allSrc, curSrc, curProject, findByPath, pick, applyView, busy, select: id => select(id) };
+    initTavern(ctx).then(render);
+    initUpdates(ctx);
+    initWorkshop(ctx).then(render);
   } catch (e) {
     $('#main').innerHTML = `<div class="welcome"><h1>启动失败</h1><p>${esc(e.message)}</p></div>`;
   }

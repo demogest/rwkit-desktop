@@ -1286,6 +1286,16 @@ function doAction(body) {
   }
 }
 
+// ---------- 给创意工坊模块用：rwkit 函数与本地项目的完整内容 ----------
+export const rwkitModule = () => (R && !rw.error ? R : null);
+export const isUserError = e => e instanceof UserError || isPackError(e);
+export function sourcePack(p) {
+  if (!rwkitModule()) fail(rw.error || 'rwkit.mjs 不可用');
+  const s = getSource(p);
+  const info = fs.statSync(p).isDirectory() ? folderInfo(p) : packInfo(p);
+  return { pack: clone(s.pack), draft: !!s.draft, info };
+}
+
 // ---------- 打开、移除 ----------
 export function openPaths(paths) {
   const opened = [], errors = [];

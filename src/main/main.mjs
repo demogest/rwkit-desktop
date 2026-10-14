@@ -1,10 +1,14 @@
 // rwkit 桌面版主进程：窗口、IPC、系统对话框、单实例与 .rwpack 文件关联
-import { app, BrowserWindow, ipcMain, dialog, shell, protocol, nativeTheme, Menu, screen, session } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, protocol, nativeTheme, Menu, screen, session, safeStorage, nativeImage } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as core from './core.mjs';
+import * as workshop from './workshop.mjs';
+import * as tavern from './tavern.mjs';
+import * as updater from './updater.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..', '..');
@@ -98,6 +102,36 @@ async function start() {
     emit: send,
     log,
   });
+  // 创意工坊：登录凭据用系统加密（Windows 为 DPAPI）保存
+  const canSeal = safeStorage.isEncryptionAvailable();
+  workshop.init({
+    dataDir: app.getPath('userData'),
+    defaultDownloads: app.getPath('downloads'),
+    appVersion: app.getVersion(),
+    openExternal: url => (AUTOTEST && process.env.RWKIT_NO_EXTERNAL ? Promise.resolve(log('打开外部链接（自测时跳过）：' + url)) : shell.openExternal(url)),
+    encrypt: canSeal ? t => safeStorage.encryptString(t).toString('base64') : null,
+    decrypt: canSeal ? b => safeStorage.decryptString(Buffer.from(b, 'base64')) : null,
+    // 发现页的封面原图常有几 MB，缩成卡片大小的 JPEG 再显示
+    thumb: (c, width) => {
+      const img = nativeImage.createFromBuffer(c.buf);
+      if (img.isEmpty() || img.getSize().width <= width) return c;
+      return { type: 'image/jpeg', buf: img.resize({ width, quality: 'good' }).toJPEG(84) };
+    },
+    log,
+    emit: send,
+  });
+  // 安装到 SillyTavern 的本机桥接服务（启用后才监听 127.0.0.1）
+  tavern.init({ dataDir: app.getPath('userData'), log, emit: send });
+  // 检查更新：安装版下载到临时文件夹后运行安装程序；免安装版把新版本放在当前 exe 旁边
+  const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
+  updater.init({
+    version: app.getVersion(),
+    kind: !app.isPackaged ? (process.env.RWKIT_UPDATE_KIND || 'dev') : portableDir ? 'portable' : 'setup',
+    dataDir: app.getPath('userData'),
+    downloadDir: portableDir || path.join(app.getPath('temp'), 'rwkit-desktop-update'),
+    ...(!app.isPackaged && process.env.RWKIT_UPDATE_API ? { api: process.env.RWKIT_UPDATE_API } : {}),
+    log, emit: send,
+  });
   applyTheme();
   await core.ensureRwkit();
   const initial = argPaths(process.argv);
@@ -126,6 +160,10 @@ async function start() {
         if (!c) return new Response('', { status: 404 });
         return new Response(c.buf, { headers: { 'content-type': c.type, 'cache-control': 'max-age=86400' } });
       }
+      if (u.host === 'wscover') {
+        const c = await workshop.cover(decodeURIComponent(u.pathname.slice(1)), u.searchParams.get('own') === '1', u.searchParams.get('v') || '', Math.min(1600, Number(u.searchParams.get('w')) || 0));
+        return new Response(c.buf, { headers: { 'content-type': c.type, 'cache-control': 'max-age=3600' } });
+      }
       if (u.host === 'preview') {
         const html = previews.get(u.pathname.slice(1));
         if (html == null) return new Response('', { status: 404 });
@@ -153,6 +191,7 @@ async function hostRoute(route, body) {
         folders: { title: '打开项目文件夹（或装着离线包的文件夹）', properties: ['openDirectory', 'multiSelections'] },
         folder: { title: body.title || '选择文件夹', properties: ['openDirectory', 'createDirectory', 'promptToCreate'] },
         image: { title: '选择封面图', properties: ['openFile'], filters: [{ name: '图片', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'svg'] }] },
+        wsCover: { title: '选择工坊封面（PNG / JPEG / WebP，不超过 3 MB）', properties: ['openFile'], filters: [{ name: '图片', extensions: ['jpg', 'jpeg', 'png', 'webp'] }] },
         rwkit: { title: '选择 rwkit.mjs', properties: ['openFile'], filters: [{ name: 'rwkit.mjs', extensions: ['mjs', 'js'] }] },
       }[k];
       if (!opts) return { paths: [] };
@@ -173,7 +212,38 @@ async function hostRoute(route, body) {
     case 'quit': quitting = true; clearTimeout(closeAckTimer); setImmediate(() => win?.close()); return { ok: true };
     case 'devtools': win?.webContents.toggleDevTools(); return { ok: true };
     case 'settings': { const r = await core.handle('settings', body); applyTheme(); return r; }
-    default: return core.handle(route, body);
+    case 'ws.download': case 'ws.downloadOwn': {
+      // 下载完成后按需直接在程序里打开
+      await core.ensureRwkit();
+      const r = await workshop.handle(route, body);
+      if (!r.ok || !r.target || !body.open) return r;
+      const o = core.openPaths([r.target]);
+      core.syncWatchers();
+      return { ...r, opened: o.opened, ...core.view() };
+    }
+    case 'up.install': {
+      // 运行下载好的安装程序 / 新的免安装版，然后退出
+      const file = updater.downloadedFile();
+      if (!file || !fs.existsSync(file)) return { ok: false, error: '还没有下载新版本' };
+      if (core.hasDrafts().length) return { ok: false, error: '还有未保存的修改，请先保存或放弃后再更新' };
+      if (!app.isPackaged) { shell.showItemInFolder(file); return { ok: true, dev: true }; }
+      spawn(file, [], { detached: true, stdio: 'ignore', cwd: path.dirname(file) }).unref();
+      quitting = true; clearTimeout(closeAckTimer);
+      setTimeout(() => app.quit(), 300);
+      return { ok: true };
+    }
+    case 'up.reveal': { const file = updater.downloadedFile(); if (file) shell.showItemInFolder(file); return { ok: !!file }; }
+    case 'st.saveScript': {
+      const r = await dialog.showSaveDialog(win, { title: '保存安装桥脚本', defaultPath: path.join(app.getPath('downloads'), '酒馆助手脚本-rwkit安装桥.json'), filters: [{ name: '酒馆助手脚本', extensions: ['json'] }] });
+      if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+      fs.writeFileSync(r.filePath, JSON.stringify(tavern.bridgeScript().json, null, 2), 'utf8');
+      return { ok: true, path: r.filePath };
+    }
+    default:
+      if (route.startsWith('up.')) return updater.handle(route, body);
+      if (route.startsWith('st.')) { await core.ensureRwkit(); return tavern.handle(route, body); }
+      if (route.startsWith('ws.')) { await core.ensureRwkit(); return workshop.handle(route, body); }
+      return core.handle(route, body);
   }
 }
 
