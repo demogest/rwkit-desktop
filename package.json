@@ -1,0 +1,98 @@
+{
+  "name": "rwkit-desktop",
+  "productName": "rwkit 离线包工具",
+  "version": "1.0.0",
+  "description": "轮回战场创意工坊离线包（.rwpack）的检查、修复、编辑、解包与打包工具",
+  "author": "Demogest",
+  "license": "MIT",
+  "homepage": "https://github.com/demogest/rwkit-desktop#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/demogest/rwkit-desktop.git"
+  },
+  "bugs": {
+    "url": "https://github.com/demogest/rwkit-desktop/issues"
+  },
+  "private": true,
+  "type": "module",
+  "main": "src/main/main.mjs",
+  "scripts": {
+    "start": "npm run build:cm && electron .",
+    "dev": "electron .",
+    "build:cm": "esbuild src/editor/cm-entry.js --bundle --format=esm --minify --target=chrome130 --outfile=src/renderer/vendor/cm.js",
+    "icon": "node scripts/make-icon.mjs",
+    "sync-rwkit": "node scripts/sync-rwkit.mjs",
+    "test": "node --test \"test/*.test.mjs\"",
+    "dist": "npm run build:cm && electron-builder --win nsis portable",
+    "dist:dir": "npm run build:cm && electron-builder --win dir"
+  },
+  "build": {
+    "appId": "com.rwkit.desktop",
+    "productName": "rwkit 离线包工具",
+    "executableName": "rwkit",
+    "copyright": "Copyright © 2026 Demogest",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "package.json",
+      "src/main/**/*",
+      "src/renderer/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/rwkit.mjs",
+        "to": "rwkit.mjs"
+      }
+    ],
+    "asar": true,
+    "electronLanguages": [
+      "zh-CN",
+      "en-US"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "rwkit 离线包工具",
+      "artifactName": "rwkit-desktop-${version}-setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "rwkit-desktop-${version}-portable.${ext}"
+    },
+    "fileAssociations": [
+      {
+        "ext": "rwpack",
+        "name": "rwpack",
+        "description": "轮回战场创意工坊离线包",
+        "role": "Editor",
+        "icon": "build/rwpack.ico"
+      }
+    ]
+  },
+  "devDependencies": {
+    "@codemirror/autocomplete": "6.20.3",
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-html": "6.4.12",
+    "@codemirror/lang-javascript": "6.2.5",
+    "@codemirror/lang-json": "6.0.2",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/search": "6.7.2",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.14",
+    "@lezer/highlight": "1.2.5",
+    "codemirror": "6.0.2",
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.2"
+  }
+}
