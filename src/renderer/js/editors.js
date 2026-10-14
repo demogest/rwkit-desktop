@@ -83,8 +83,16 @@ function head(ed, ctx, titlePath, titlePh, actions) {
     <div class="ed-crumb">${icon(KIND_ICON[d.kind] || 'file', 'xs')}<span>${esc(KIND[d.kind] || d.kind)}</span><span class="sep">/</span><span class="ell">${esc(crumb)}</span>${ed.key != null && ed.type !== 'artifact' ? `<span class="sep">/</span><span class="mono muted">${esc(ed.type === 'entry' ? 'uid ' + (ed.form.uid ?? '') : ed.key)}</span>` : ''}</div>
     <div class="ed-titlebar">
       ${titlePath ? `<input class="title-input" data-bind="${titlePath}" data-type="text" value="${esc(getPath(ed.form, titlePath) ?? '')}" placeholder="${esc(titlePh)}" spellcheck="false">` : `<div class="title-static">${esc(d.label)}</div>`}
-      <div class="ed-actions">${actions}</div>
+      <div class="ed-actions"><button class="btn ghost sm" data-act="tutorial" data-sec="${tutorialSec(ed)}" title="编写教程：${esc(KIND[d.kind] || '')}的写法（F1 打开完整教程）">${icon('book')}教程</button>${actions}</div>
     </div></div>`;
+}
+// 编辑器对应的教程章节（docs/扩展编写教程.md 里的锚点）
+function tutorialSec(ed) {
+  if (ed.type === 'entry') return 'worldbook';
+  if (ed.type === 'regex') return isPage(ed.form.replaceString) ? 'regex-page' : 'regex';
+  if (ed.type === 'script' || ed.type === 'scriptText') return 'script';
+  if (ed.type === 'artifact') return ed.data.kind === 'worldbook' || ed.data.kind === 'script' ? 'conflicts' : ed.data.kind;
+  return ed.data.kind;
 }
 function warnsHtml(ctx) {
   const list = ctx.warns || [];
@@ -261,7 +269,7 @@ function artifactHtml(ed, ctx) {
     </section>
     ${d.kind === 'script' ? `<section class="ed-sec">${F.field('作用域', `<div class="seg" data-seg="artscope">${Object.entries(SCOPE).map(([v, t]) => `<button type="button" data-v="${v}" class="${(f.scope || 'character') === v ? 'on' : ''}">${t}</button>`).join('')}</div>`, '角色脚本跟随角色卡；预设脚本跟随预设；全局脚本始终运行。')}</section>` : ''}
     ${canConf ? `<section class="ed-sec"><h4>${icon('link', 'xs')}原版冲突声明</h4>
-      <div class="fhint" style="margin-bottom:8px">声明这个 ${esc(KIND[d.kind])} 与原版的哪些${d.kind === 'script' ? '脚本' : '世界书条目'}冲突：安装时停用或替换它们，卸载时恢复。目标至少填 ${d.kind === 'script' ? 'id' : 'uid'} 或名称。</div>
+      <div class="fhint" style="margin-bottom:8px">声明这个 ${esc(KIND[d.kind])} 与原版的哪些${d.kind === 'script' ? '脚本' : '世界书条目'}冲突：安装时由工坊停用（disable）或替换（replace）它们。目标至少填 ${d.kind === 'script' ? 'id' : 'uid'} 或名称。</div>
       ${listHtml('conflicts', ed)}</section>` : ''}
     <section class="ed-sec">
       <h4>${icon('sliders', 'xs')}整理</h4>

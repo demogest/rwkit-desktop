@@ -118,7 +118,8 @@ function welcome() {
     </div>
     <div class="wsteps">
       ${[['pencil', '直接编辑', '打开 .rwpack 就能改：世界书条目、正则、脚本、项目资料都有对应的表单，修改先存在草稿里。'], ['save', '保存为新版本', '保存时自动升版本号、重算大小与 SHA-256，工坊可以直接导入。'], ['folder', '或者解包编辑', '需要用 VS Code 大量修改时，解包成项目文件夹；保存文件后这里自动重新检查。'], ['wrench', '一键修复', '手动改过 .rwpack、导入时报“校验失败”？打开它点“修复”即可。']].map(([i, t, d]) => `<div class="wstep">${icon(i)}<b>${t}</b><span>${d}</span></div>`).join('')}
-    </div></div>`;
+    </div>
+    <div class="learn">${icon('book')}<div><b>第一次写扩展？</b><span>编写教程讲解了世界书、正则（含 HTML 页面）、脚本、预设、数据、原版资源规则、依赖等全部工坊内容的写法，以及检查规则和常见的坑。</span></div><button class="btn" data-act="tutorial">${icon('book')}打开编写教程</button></div></div>`;
 }
 function looseView(l) {
   return `<div class="card"><div class="card-h">${icon(l.kind === 'pack' ? 'package' : 'folder')}${esc(l.file)}<span class="grow"></span>
@@ -219,7 +220,7 @@ async function renderOverview(p, s) {
   body.innerHTML = `<div class="page ov">${resultCard(p)}<div class="ov-grid">
     <div class="ov-main">
       <div class="card" id="pfcard">
-        <div class="card-h">${icon('pencil')}项目资料<span class="grow"></span><span class="ed-state ${S.pf.dirty ? 'dirty' : ''}" data-pf-state>${S.pf.dirty ? icon('dot') + '有未保存的修改' : ''}</span>
+        <div class="card-h">${icon('pencil')}项目资料<button class="btn xs ghost" data-act="tutorial" data-sec="project" title="编写教程：项目资料">${icon('book')}教程</button><span class="grow"></span><span class="ed-state ${S.pf.dirty ? 'dirty' : ''}" data-pf-state>${S.pf.dirty ? icon('dot') + '有未保存的修改' : ''}</span>
           <button class="btn sm" data-act="pf-revert" ${S.pf.dirty ? '' : 'disabled'}>${icon('undo')}还原</button><button class="btn sm primary" data-act="pf-save" ${S.pf.dirty ? '' : 'disabled'}>${icon('save')}保存</button></div>
         <div class="card-b form">
           ${F.field('名称', F.text('name', f.name, '项目名称'))}
@@ -228,8 +229,8 @@ async function renderOverview(p, s) {
           ${F.field('简介', `<textarea class="input" rows="4" data-bind="summary" data-type="text" placeholder="显示在工坊“本地”页的作品卡片上">${esc(f.summary)}</textarea>`)}
           ${F.field('标签', F.chips('tags', f.tags, '输入后按回车'))}
           ${F.field('项目 id', `<div class="row"><span class="mono small">${esc(d.project.id)}</span><button class="btn xs ghost" data-act="copy" data-text="${esc(d.project.id)}">${icon('copy')}复制</button></div>`, '依赖这个项目时要填写它。新建项目时自动生成，不要修改。')}
-          <div class="form-sec"><h4>${icon('link', 'xs')}依赖 <span class="muted small">需要先安装的其他工坊项目，最多 12 个</span></h4>${listHtml('dependencies', S.pf)}</div>
-          <div class="form-sec"><h4>${icon('sliders', 'xs')}原版资源规则 <span class="muted small">安装后停用或启用原版角色卡里的资源，卸载时恢复</span></h4>${listHtml('overrides', S.pf)}</div>
+          <div class="form-sec"><h4>${icon('link', 'xs')}依赖 <span class="muted small">需要先安装的其他工坊项目，最多 12 个</span><button class="btn xs ghost icon" data-act="tutorial" data-sec="deps" title="编写教程：依赖">${icon('help')}</button></h4>${listHtml('dependencies', S.pf)}</div>
+          <div class="form-sec"><h4>${icon('sliders', 'xs')}原版资源规则 <span class="muted small">安装后停用或启用原版角色卡里的资源，卸载时恢复</span><button class="btn xs ghost icon" data-act="tutorial" data-sec="overrides" title="编写教程：原版资源规则">${icon('help')}</button></h4>${listHtml('overrides', S.pf)}</div>
         </div>
       </div>
     </div>
@@ -333,7 +334,8 @@ async function renderEdit(p, s) {
 }
 function edEmpty() {
   return `<div class="ed-empty">${icon('pencil', 'big')}<b>选择左侧的一项开始编辑</b><span>世界书条目、正则、脚本都有对应的表单；正文与代码支持高亮、查找替换（Ctrl+F）。</span>
-    <div class="kbd-hints"><span><kbd>Ctrl</kbd>+<kbd>S</kbd> 保存</span><span><kbd>Ctrl</kbd>+<kbd>F</kbd> 查找</span><span><kbd>F5</kbd> 重新检查</span></div></div>`;
+    <div class="kbd-hints"><span><kbd>Ctrl</kbd>+<kbd>S</kbd> 保存</span><span><kbd>Ctrl</kbd>+<kbd>F</kbd> 查找</span><span><kbd>F5</kbd> 重新检查</span><span><kbd>F1</kbd> 编写教程</span></div>
+    <button class="btn" data-act="tutorial">${icon('book')}不知道怎么写？看扩展编写教程</button></div>`;
 }
 function itemSub(a, it) {
   const s = it.sum || {};
@@ -854,6 +856,57 @@ function helpFlow() {
     <p>离线包不超过 6 MB；artifact 最多 32 个；单个世界书最多 500 条；依赖最多 12 个；原版资源规则最多 300 条。</p>`, foot: '<div class="spacer"></div><button class="btn primary" data-m="close">知道了</button>' });
 }
 
+// ---------- 编写教程（docs/扩展编写教程.md，构建时放进 vendor/） ----------
+let tutorialHtml = null;
+async function tutorialFlow(anchor) {
+  try {
+    if (!tutorialHtml) {
+      const [{ marked }, md] = await Promise.all([import('../vendor/marked.js'), fetch('vendor/tutorial.md').then(r => { if (!r.ok) throw new Error('找不到教程文件'); return r.text(); })]);
+      tutorialHtml = marked.parse(md, { gfm: true });
+    }
+  } catch (e) { toast('无法打开编写教程：' + e.message, 'error'); return; }
+  const m = modal({ cls: 'wide doc', title: `${icon('book')}<span>扩展编写教程</span>`, body: `<div class="doc-wrap"><nav class="doc-toc"></nav><article class="md-body">${tutorialHtml}</article></div>` });
+  m.body.classList.add('nopad');
+  const art = $('.md-body', m.el), toc = $('.doc-toc', m.el);
+  // 二级标题用前面 <a id> 的锚点（与 GitHub 上的链接一致），三级标题按顺序编号
+  let n2 = 0, n3 = 0, cur = '';
+  const heads = [];
+  for (const h of $$('h2, h3', art)) {
+    if (h.tagName === 'H2') {
+      const prev = h.previousElementSibling;
+      const a = prev?.matches?.('a[id]') ? prev : prev?.querySelector?.('a[id]');
+      cur = a?.id || 'sec-' + (++n2); n3 = 0;
+      if (a) a.removeAttribute('id');
+      h.id = cur;
+    } else h.id = cur + '-' + (++n3);
+    heads.push(h);
+  }
+  // 段落中间的 <a id>（如 regex-page）保留为跳转目标
+  toc.innerHTML = '<div class="toc-h">目录</div>' + heads.map(h => `<a class="toc-i ${h.tagName === 'H3' ? 'sub' : ''}" href="#${esc(h.id)}">${esc(h.textContent)}</a>`).join('');
+  // 跳到锚点；段落里的 <a id> 紧跟标题时，对齐到那个标题
+  const target = id => {
+    let el = art.querySelector('#' + CSS.escape(id));
+    const next = el?.tagName === 'A' ? (el.parentElement !== art ? el.parentElement : el).nextElementSibling : null;
+    if (next && /^H[23]$/.test(next.tagName)) el = next;
+    return el;
+  };
+  const go = id => { const el = target(id); if (el) { art.scrollTop = Math.max(0, el.offsetTop - 12); spy(); } };
+  m.el.addEventListener('click', e => {
+    const a = e.target.closest('a[href]'); if (!a) return;
+    const href = a.getAttribute('href');
+    if (href.startsWith('#')) { e.preventDefault(); go(decodeURIComponent(href.slice(1))); }
+    else if (/^https:\/\//.test(href)) { e.preventDefault(); window.open(href); }
+  });
+  // 滚动时高亮当前章节
+  const spy = () => {
+    let active = heads[0];
+    for (const h of heads) { if (h.offsetTop - art.scrollTop <= 60) active = h; else break; }
+    $$('.toc-i', toc).forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + active?.id));
+  };
+  art.addEventListener('scroll', debounce(spy, 50));
+  requestAnimationFrame(() => { if (anchor) go(anchor); else spy(); });
+}
+
 // ---------- 事件 ----------
 document.addEventListener('click', async e => {
   const t = e.target.closest('[data-act]');
@@ -866,7 +919,8 @@ document.addEventListener('click', async e => {
     case 'open-folders': openPaths(await pick('folders')); break;
     case 'new-project': newProjectFlow(); break;
     case 'example': exampleFlow(); break;
-    case 'help': helpFlow(); break;
+    case 'help': menu(t, [{ label: '扩展编写教程', icon: 'book', kbd: 'F1', hint: '世界书、正则、脚本、预设、数据等全部内容的写法', onClick: () => tutorialFlow() }, { label: '使用说明', icon: 'help', onClick: helpFlow }], { align: 'right', width: 300 }); break;
+    case 'tutorial': tutorialFlow(t.dataset.sec); break;
     case 'settings': settingsFlow(); break;
     case 'select': select(t.dataset.id); break;
     case 'select-loose': S.sel = t.dataset.path; render(); break;
@@ -963,6 +1017,7 @@ document.addEventListener('keydown', e => {
   if (mod && k === 's') { e.preventDefault(); if (S.tab === 'edit' && S.ed) saveEditor(); else if (S.tab === 'overview' && S.pf?.dirty) savePf(); return; }
   if (mod && k === 'o') { e.preventDefault(); (async () => openPaths(await pick(e.shiftKey ? 'folders' : 'packs')))(); return; }
   if (mod && k === 'n') { e.preventDefault(); newProjectFlow(); return; }
+  if (e.key === 'F1') { e.preventDefault(); tutorialFlow(); return; }
   if (mod && k === 'b') { e.preventDefault(); $('[data-act="toggle-sidebar"]')?.click(); return; }
   if (mod && /^[1-5]$/.test(e.key) && curProject()) { e.preventDefault(); $(`[data-act="tab"][data-tab="${['overview', 'edit', 'checks', 'changes', 'log'][Number(e.key) - 1]}"]`)?.click(); return; }
   if (e.key === 'F5') { e.preventDefault(); const s = curSrc(); if (s && !S.busy) runAction('check', s.path); }

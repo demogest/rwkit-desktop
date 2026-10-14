@@ -117,7 +117,7 @@ async function start() {
       if (u.host === 'ui') {
         const f = path.resolve(RENDERER, decodeURIComponent(u.pathname).replace(/^\/+/, '') || 'index.html');
         if (!f.startsWith(RENDERER + path.sep)) return new Response('forbidden', { status: 403 });
-        const type = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' }[path.extname(f)] || 'application/octet-stream';
+        const type = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.md': 'text/markdown; charset=utf-8' }[path.extname(f)] || 'application/octet-stream';
         return new Response(await fs.promises.readFile(f), { headers: { 'content-type': type } });
       }
       if (u.host === 'cover') {

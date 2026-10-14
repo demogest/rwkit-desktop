@@ -13,7 +13,7 @@
 ![Electron](https://img.shields.io/badge/Electron-44-47848f)
 [![License](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
 
-[下载](#下载) · [功能](#功能) · [使用指南](#使用指南) · [rwkitmjs](#rwkitmjs) · [从源码构建](#从源码构建) · [常见问题](#常见问题)
+[下载](#下载) · [功能](#功能) · [**扩展编写教程**](docs/扩展编写教程.md) · [使用指南](#使用指南) · [从源码构建](#从源码构建) · [常见问题](#常见问题)
 
 <img src="docs/screenshots/overview.png" alt="项目概览" width="900">
 
@@ -97,6 +97,25 @@ rwpack 工具包里的 `rwkit.mjs` 是处理离线包的命令行工具（修复
 
 <img src="docs/screenshots/dark-script.png" alt="深色模式" width="900">
 
+## 扩展编写教程
+
+第一次写扩展？请看 **[扩展编写教程](docs/扩展编写教程.md)**。它覆盖工坊支持的全部内容：
+
+| 章节 | 内容 |
+| --- | --- |
+| [先认识离线包](docs/扩展编写教程.md#basics) | 离线包结构、五种 artifact、项目文件夹格式、工坊的硬性限制 |
+| [快速上手](docs/扩展编写教程.md#quickstart) | 从示例扩展“回声茶馆”改出第一个扩展 |
+| [项目资料](docs/扩展编写教程.md#project) | id、分类、版本号规则、简介、标签、封面 |
+| [世界书](docs/扩展编写教程.md#worldbook) | 常驻 / 关键词 / 次要关键词、插入位置与深度、EJS、uid 规则、递归与分组 |
+| [正则](docs/扩展编写教程.md#regex) | 字段、文字美化、只改发给 AI、**HTML 页面**的写法与会被酒馆改写的坑 |
+| [酒馆助手脚本](docs/扩展编写教程.md#script) | 作用域、脚本与文件夹、按钮事件、与正则 / 世界书配合 |
+| [预设](docs/扩展编写教程.md#preset) · [数据](docs/扩展编写教程.md#data) | 预设对象、交给本体读取的数据 |
+| [原版资源规则](docs/扩展编写教程.md#overrides) · [原版冲突声明](docs/扩展编写教程.md#conflicts) · [依赖](docs/扩展编写教程.md#deps) | 停用 / 启用原版资源、声明冲突、依赖其他项目 |
+| [检查、打包与发布](docs/扩展编写教程.md#check) | 错误 / 需修复 / 提示三级检查的全部规则、版本号、发布前自查 |
+| [常见问题与排错](docs/扩展编写教程.md#faq) · [字段速查](docs/扩展编写教程.md#fields) | 常见报错的处理、各类内容的字段表 |
+
+程序里也能离线查看：按 <kbd>F1</kbd>，或点右上角“?”→“扩展编写教程”；每个编辑表单右上角的“**教程**”按钮会直接跳到对应章节。
+
 ## 使用指南
 
 ### 快速开始
@@ -173,7 +192,9 @@ npm run dist       # 在 dist/ 生成安装版与免安装版
 | --- | --- |
 | `npm run sync-rwkit -- <工具包文件夹>` | 用工具包里的 `rwkit.mjs` 更新内置版本（先检查兼容性） |
 | `npm run icon` | 重新生成 `build/` 下的应用图标与 `.rwpack` 文件图标 |
-| `npm run build:cm` | 重新打包 CodeMirror（`src/editor/cm-entry.js` → `src/renderer/vendor/cm.js`） |
+| `npm run build` | 构建界面用到的生成文件（下面两项） |
+| `npm run build:cm` | 打包 CodeMirror（`src/editor/cm-entry.js` → `src/renderer/vendor/cm.js`） |
+| `npm run build:docs` | 把编写教程与 Markdown 渲染器放进界面（`docs/扩展编写教程.md` → `src/renderer/vendor/`） |
 | `npm run dist:dir` | 只生成未打包的程序文件夹（调试打包结果用） |
 
 ### 项目结构
@@ -186,6 +207,7 @@ npm run dist       # 在 dist/ 生成安装版与免安装版
 | [`src/renderer/`](src/renderer) | 界面：原生 JavaScript 模块，不依赖前端框架 |
 | [`src/editor/cm-entry.js`](src/editor/cm-entry.js) | CodeMirror 打包入口，含世界书正文的高亮规则与中文界面文字 |
 | [`resources/rwkit.mjs`](resources/rwkit.mjs) | 内置的 rwkit |
+| [`docs/`](docs) | 扩展编写教程（程序内的教程也由它生成）与截图 |
 | [`scripts/`](scripts) | 生成图标、同步 rwkit |
 | [`test/`](test) | 核心逻辑测试 |
 
@@ -220,4 +242,4 @@ npm run dist       # 在 dist/ 生成安装版与免安装版
 
 [MIT](LICENSE) © 2026 Demogest。本仓库的全部内容（包括 `resources/rwkit.mjs`）都以 MIT 许可证发布。
 
-使用的开源项目：[Electron](https://www.electronjs.org/)、[CodeMirror](https://codemirror.net/)、[esbuild](https://esbuild.github.io/)、[electron-builder](https://www.electron.build/)。
+使用的开源项目：[Electron](https://www.electronjs.org/)、[CodeMirror](https://codemirror.net/)、[marked](https://marked.js.org/)、[esbuild](https://esbuild.github.io/)、[electron-builder](https://www.electron.build/)。

@@ -535,6 +535,44 @@ body.has-draftbar #toasts { bottom: 84px; }
 #dropov .t { font-size: 18px; font-weight: 700; margin-top: 8px; }
 #dropov .s { color: var(--muted); font-size: 13px; margin-top: 4px; }
 
+/* ---------- 编写教程 ---------- */
+.learn { display: flex; gap: 14px; align-items: center; margin-top: 18px; padding: 14px 16px; border-radius: 12px; background: var(--accent-weak); border: 1px solid var(--accent-line); }
+.learn > .i { width: 26px; height: 26px; color: var(--accent); }
+.learn > div { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--text2); }
+.learn b { color: var(--text); font-size: 14px; }
+.ed-empty .btn + .btn { margin-top: 6px; }
+.modal.doc { width: min(1200px, 100%); height: min(900px, calc(100vh - 40px)); }
+.modal.doc .modal-t { display: flex; align-items: center; gap: 8px; }
+.modal.doc .modal-t .i { color: var(--accent); }
+.modal-b.nopad { padding: 0; overflow: hidden; display: flex; }
+.doc-wrap { display: grid; grid-template-columns: 250px minmax(0, 1fr); flex: 1; min-height: 0; border-top: 1px solid var(--border); }
+.doc-toc { overflow: auto; padding: 12px 10px 30px; background: var(--panel2); border-right: 1px solid var(--border); }
+.toc-h { font-size: 11.5px; font-weight: 650; color: var(--muted); padding: 4px 10px 8px; }
+.toc-i { display: block; padding: 5px 10px; border-radius: 7px; font-size: 13px; color: var(--text2); text-decoration: none; line-height: 1.4; }
+.toc-i:hover { background: var(--hover); color: var(--text); }
+.toc-i.sub { padding-left: 24px; font-size: 12.5px; color: var(--muted); }
+.toc-i.on { background: var(--accent-weak); color: var(--accent); font-weight: 600; }
+.md-body { position: relative; overflow: auto; padding: 22px 40px 80px; color: var(--text); font-size: 14px; line-height: 1.75; user-select: text; }
+.md-body > *:first-child { margin-top: 0; }
+.md-body h1 { font-size: 24px; margin: 0 0 14px; }
+.md-body h2 { font-size: 19px; margin: 34px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.md-body h3 { font-size: 15.5px; margin: 24px 0 8px; }
+.md-body p, .md-body ul, .md-body ol { margin: 0 0 12px; }
+.md-body ul, .md-body ol { padding-left: 22px; }
+.md-body li { margin: 3px 0; }
+.md-body li input[type=checkbox] { margin-right: 6px; accent-color: var(--accent); }
+.md-body a { color: var(--accent); text-decoration: none; }
+.md-body a:hover { text-decoration: underline; }
+.md-body code { font-family: var(--mono); font-size: .88em; background: var(--sunken); padding: 1px 5px; border-radius: 5px; }
+.md-body pre { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; overflow: auto; margin: 0 0 14px; }
+.md-body pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.65; white-space: pre; }
+.md-body table { border-collapse: collapse; margin: 0 0 16px; width: 100%; font-size: 13px; }
+.md-body th, .md-body td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; text-align: left; }
+.md-body th { background: var(--panel2); font-weight: 650; white-space: nowrap; }
+.md-body blockquote { margin: 0 0 14px; padding: 10px 14px; border-left: 3px solid var(--accent); background: var(--accent-weak); border-radius: 0 10px 10px 0; color: var(--text2); }
+.md-body blockquote > *:last-child { margin-bottom: 0; }
+.md-body hr { border: 0; border-top: 1px solid var(--border); margin: 26px 0; }
+
 /* ---------- 窄窗口 ---------- */
 @media (max-width: 1280px) { .ov-grid { grid-template-columns: minmax(0, 1fr) 300px; } .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .editor-wrap { grid-template-columns: 290px minmax(0, 1fr); } }
-@media (max-width: 1120px) { .ov-grid { grid-template-columns: 1fr; } .wsteps { grid-template-columns: repeat(2, 1fr); } .ph-sub { display: none; } .test-out { grid-template-columns: 1fr; } }
+@media (max-width: 1120px) { .doc-wrap { grid-template-columns: 1fr; } .doc-toc { display: none; } .ov-grid { grid-template-columns: 1fr; } .wsteps { grid-template-columns: repeat(2, 1fr); } .ph-sub { display: none; } .test-out { grid-template-columns: 1fr; } }

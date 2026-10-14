@@ -17,14 +17,16 @@
   "type": "module",
   "main": "src/main/main.mjs",
   "scripts": {
-    "start": "npm run build:cm && electron .",
+    "start": "npm run build && electron .",
     "dev": "electron .",
+    "build": "npm run build:cm && npm run build:docs",
     "build:cm": "esbuild src/editor/cm-entry.js --bundle --format=esm --minify --target=chrome130 --outfile=src/renderer/vendor/cm.js",
+    "build:docs": "node scripts/build-docs.mjs",
     "icon": "node scripts/make-icon.mjs",
     "sync-rwkit": "node scripts/sync-rwkit.mjs",
     "test": "node --test \"test/*.test.mjs\"",
-    "dist": "npm run build:cm && electron-builder --win nsis portable",
-    "dist:dir": "npm run build:cm && electron-builder --win dir"
+    "dist": "npm run build && electron-builder --win nsis portable",
+    "dist:dir": "npm run build && electron-builder --win dir"
   },
   "build": {
     "appId": "com.rwkit.desktop",
@@ -93,6 +95,7 @@
     "codemirror": "6.0.2",
     "electron": "44.7.0",
     "electron-builder": "26.15.3",
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "marked": "18.0.14"
   }
 }
