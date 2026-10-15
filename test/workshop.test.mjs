@@ -31,6 +31,8 @@ async function fakeFetch(url, init = {}) {
   let m;
   if (u.pathname === '/api/auth/exchange') { srv.exchangeTries++; return srv.exchangeTries < 3 ? json({ error: 'Discord 登录尚未完成', code: 'login_pending' }, 409) : json({ token: srv.token, expires_at: Math.floor(Date.now() / 1000) + 3600 }); }
   if (u.pathname === '/api/auth/me') return authed() && srv.meStatus === 200 ? json({ user: { id: 1, discord_id: '42', username: 'tester', display_name: '测试作者', avatar: null } }) : json({ error: '登录状态已失效', code: 'unauthorized' }, 401);
+  if (u.pathname === '/api/projects' && u.searchParams.get('query') === 'html') return new Response('<html>portal</html>', { status: 200, headers: { 'content-type': 'text/html' } });
+  if (u.pathname === '/api/projects') return json({ items: [{ id: 'x', name: '<b>名</b>', version: '7<img>', downloads_count: '12', tags: ['a'] }], next_offset: null });
   if (u.pathname === '/api/my/projects') return authed() && srv.meStatus === 200 ? json({ items: [] }) : json({ error: '登录状态已失效', code: 'unauthorized' }, 401);
   if ((m = /^\/api\/projects\/([^/]+)(?:\/([a-z-]+))?$/.exec(u.pathname))) {
     const [, id, sub] = m, p = srv.projects.get(id);
@@ -48,7 +50,7 @@ async function fakeFetch(url, init = {}) {
 }
 const enc = s => Buffer.from(s).toString('base64').split('').reverse().join('');
 const dec = s => Buffer.from(s.split('').reverse().join(''), 'base64').toString();
-ws.init({ dataDir: path.join(tmp, 'data'), defaultDownloads: tmp, appVersion: 'test', fetch: fakeFetch, encrypt: enc, decrypt: dec, emit: () => {}, log: () => {} });
+ws.init({ dataDir: path.join(tmp, 'data'), defaultDownloads: tmp, cacheDir: path.join(tmp, 'covers'), thumb: (c, w) => ({ type: 'image/jpeg', buf: Buffer.from('thumb' + w) }), appVersion: 'test', fetch: fakeFetch, encrypt: enc, decrypt: dec, emit: () => {}, log: () => {} });
 const ok = async (route, body) => { const r = await ws.handle(route, body); if (r && r.ok === false) throw new Error(route + '：' + r.error); return r; };
 
 let samplePack;
@@ -137,6 +139,29 @@ test('上传：超过工坊 4 MB 限制时在本地拦下', async () => {
   const r = await ws.handle('ws.upload', { id: 'mine-1', path: big, changelog: '' });
   assert.equal(r.ok, false);
   assert.match(r.error, /4 MB/);
+});
+
+test('服务器返回 HTML 时给出能看懂的提示', async () => {
+  const r = await ws.handle('ws.list', { query: 'html' });
+  assert.equal(r.ok, false);
+  assert.equal(r.code, 'bad_response');
+  assert.match(r.error, /无法识别/);
+});
+
+test('服务器返回的数字字段转成数字，文字保持原样', async () => {
+  const r = await ok('ws.list', {});
+  assert.equal(r.items[0].version, 0, '不是数字的版本号变成 0，不会把 HTML 带进界面');
+  assert.equal(r.items[0].downloads_count, 12);
+  assert.equal(r.items[0].name, '<b>名</b>');
+});
+
+test('封面缩略图写进磁盘缓存', async () => {
+  const c = await ws.cover('remote-1', false, 'v1', 480);
+  assert.equal(c.type, 'image/jpeg');
+  const files = fs.readdirSync(path.join(tmp, 'covers'));
+  assert.equal(files.length, 1);
+  const b = fs.readFileSync(path.join(tmp, 'covers', files[0]));
+  assert.ok(b.toString('latin1').startsWith('image/jpeg\nthumb480'));
 });
 
 test('登录失效（401）时清除保存的登录状态', async () => {

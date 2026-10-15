@@ -32,7 +32,7 @@ const ws = {
     this.records.set(p.project.id, { id: p.project.id, name: p.project.name, version: p.project.version, applied: false, appliedVersion: null, targetCharacterName: null, source: 'offline', pack: p, fileName: file.name });
   },
   async preflightProject() { this.calls.push('preflight'); return { blocking: this.blocking, warnings: [{ message: '提示一下' }] }; },
-  async applyProject(id) { this.calls.push('apply'); const r = this.records.get(id); Object.assign(r, { applied: true, appliedVersion: r.version, targetCharacterName: '轮回战场' }); return r; },
+  async applyProject(id) { this.calls.push('apply'); const r = this.records.get(id); Object.assign(r, { applied: true, appliedVersion: r.version, targetCharacterName: '轮回战场', restoreWarnings: ['<img src=x>'] }); return r; },
   async uninstallProject(id) { this.calls.push('uninstall'); const r = this.records.get(id); if (r) Object.assign(r, { applied: false, appliedVersion: null }); },
   async refresh() {},
 };
@@ -119,6 +119,18 @@ test('有未保存的草稿时不安装', async () => {
   await core.handle('draft.discard', { path: samplePack });
   assert.equal(r.ok, false);
   assert.match(r.error, /未保存/);
+});
+
+test('不带配对码的请求一律拒绝（网页无法探测本机是否开着 rwkit）', async () => {
+  const r = await fetch(`http://127.0.0.1:${port}/rwkit/ping`);
+  assert.equal(r.status, 401);
+});
+
+test('页面报回的安装记录只保留需要的字段', async () => {
+  const j = await install({ replace: true });
+  assert.equal(j.state, 'done', j.result?.error);
+  assert.deepEqual(Object.keys(j.result.record).sort(), ['appliedVersion', 'restoreWarnings', 'targetCharacterName']);
+  assert.equal(typeof j.result.record.restoreWarnings, 'number');
 });
 
 test('配对码不对时，安装桥提示重新复制脚本', async () => {

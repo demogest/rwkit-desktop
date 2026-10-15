@@ -123,6 +123,15 @@ export async function installFlow(path) {
     lines.push(c?.character ? `<p>世界书、正则与角色脚本会装到 SillyTavern 当前打开的角色 <b>“${esc(c.character)}”</b> 上。</p>` : '<p class="warn-text">SillyTavern 里还没有打开角色卡：安装世界书、正则或角色脚本时需要先打开角色卡。</p>');
   }
   if (!c?.workshop) lines.push('<p class="warn-text">SillyTavern 里没有检测到轮回战场创意工坊：请打开带“创意工坊”脚本的轮回战场角色卡。</p>');
+  // 依赖没有装好时，工坊的安装检查会拦下：提前说明缺哪些
+  const deps = f?.s.project?.dependencies || f?.p.dependencies || [];
+  if (deps.length && c?.installed) {
+    const missing = deps.filter(d => { const r = recordOf(d.project_id); return !r?.applied || Number(r.appliedVersion) < Number(d.min_version); });
+    if (missing.length) {
+      const nameOf = d => recordOf(d.project_id)?.name || X.S.projects.find(p => p.id === d.project_id)?.name || d.project_id;
+      lines.push(`<p class="warn-text">这个作品依赖的 ${missing.map(d => `“${esc(nameOf(d))}” v${esc(d.min_version)}+`).join('、')} 在 SillyTavern 里还没有安装（或版本不够），工坊的安装检查会拦下：请先安装这些依赖。</p>`);
+    }
+  }
   const ok = await ask({ title: '安装到 SillyTavern', html: lines.join(''), buttons: [{ label: '取消', value: null }, { label: replace ? '卸载旧版本并安装' : '安装', value: 'ok', primary: true }] });
   if (ok !== 'ok') return;
   return runJob(await api('st.install', { path, replace }), name, replace);

@@ -112,6 +112,7 @@ async function start() {
     encrypt: canSeal ? t => safeStorage.encryptString(t).toString('base64') : null,
     decrypt: canSeal ? b => safeStorage.decryptString(Buffer.from(b, 'base64')) : null,
     // 发现页的封面原图常有几 MB，缩成卡片大小的 JPEG 再显示
+    cacheDir: path.join(app.getPath('userData'), 'cache', 'covers'),
     thumb: (c, width) => {
       const img = nativeImage.createFromBuffer(c.buf);
       if (img.isEmpty() || img.getSize().width <= width) return c;
@@ -169,7 +170,10 @@ async function start() {
         if (html == null) return new Response('', { status: 404 });
         return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } });
       }
-    } catch (e) { log('资源读取失败 ' + req.url + '：' + e.message); }
+    } catch (e) {
+      // 工坊封面读不到（离线、没有封面）很常见，不逐条写日志
+      if (u.host !== 'wscover') log('资源读取失败 ' + req.url + '：' + e.message);
+    }
     return new Response('', { status: 404 });
   });
 
@@ -227,6 +231,8 @@ async function hostRoute(route, body) {
       if (!file || !fs.existsSync(file)) return { ok: false, error: '还没有下载新版本' };
       if (core.hasDrafts().length) return { ok: false, error: '还有未保存的修改，请先保存或放弃后再更新' };
       if (!app.isPackaged) { shell.showItemInFolder(file); return { ok: true, dev: true }; }
+      // 先放开单实例锁：新的免安装版启动时本程序可能还没退出完
+      app.releaseSingleInstanceLock();
       spawn(file, [], { detached: true, stdio: 'ignore', cwd: path.dirname(file) }).unref();
       quitting = true; clearTimeout(closeAckTimer);
       setTimeout(() => app.quit(), 300);

@@ -154,8 +154,9 @@ async function handleRequest(req, res) {
   cors(req, res);
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
   const u = new URL(req.url, 'http://127.0.0.1');
-  if (u.pathname === '/rwkit/ping') return send(res, 200, { app: 'rwkit-desktop', bridge: 1 });
+  // 所有接口都要配对码：不带配对码时什么都不回答，网页无法借此探测本机是否开着 rwkit
   if (!tokenOk(req)) return send(res, 401, { error: '配对码不正确，请在 rwkit 里重新复制安装桥脚本', code: 'bad_token' });
+  if (u.pathname === '/rwkit/ping') return send(res, 200, { app: 'rwkit-desktop', bridge: 1 });
   let m;
   if (u.pathname === '/rwkit/poll' && req.method === 'POST') {
     const b = await readBody(req);
@@ -185,7 +186,9 @@ async function handleRequest(req, res) {
       if (order.indexOf(next) > order.indexOf(j.step)) { j.step = next; env.emit('tavern', { type: 'job', job: publicJob(j) }); }
       return send(res, 200, { ok: true });
     }
-    finish(j, { ok: !!b.ok, error: b.ok ? '' : String(b.error || '安装失败'), code: String(b.code || ''), warnings: Array.isArray(b.warnings) ? b.warnings.map(String).slice(0, 50) : [], record: isObj(b.record) ? b.record : null });
+    finish(j, { ok: !!b.ok, error: b.ok ? '' : String(b.error || '安装失败'), code: String(b.code || ''), warnings: Array.isArray(b.warnings) ? b.warnings.map(w => String(w).slice(0, 500)).slice(0, 50) : [],
+      // 页面报回的安装记录只保留需要的字段
+      record: isObj(b.record) ? { appliedVersion: Number(b.record.appliedVersion) || null, targetCharacterName: b.record.targetCharacterName ? String(b.record.targetCharacterName).slice(0, 200) : null, restoreWarnings: Number(b.record.restoreWarnings) || 0 } : null });
     return send(res, 200, { ok: true });
   }
   return send(res, 404, { error: 'not found' });

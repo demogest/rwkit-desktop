@@ -105,6 +105,7 @@ function renderBody() {
   const b = $('#wsbody');
   if (!b) return;
   if (!W.st) { b.innerHTML = `<div class="page"><div class="empty">${icon('xCircle', 'big')}<b>创意工坊暂时不可用</b></div></div>`; return; }
+  if (!W.detail?.data) delete b.dataset.detail;
   if (W.detail) return renderDetail(b);
   if (W.tab === 'mine') return renderMine(b);
   renderDiscover(b);
@@ -195,6 +196,9 @@ function renderDetail(b) {
   const lists = [['worldbook', '世界书条目', pv.worldbook, x => `${x.enabled === false ? '<span class="pill plain sm">停用</span>' : ''}${x.strategy_type === 'constant' ? '<span class="pill info sm">常驻</span>' : ''}<span class="ell">${esc(x.name)}</span>${x.primary_keys?.length ? `<small class="ell">${esc(x.primary_keys.slice(0, 4).join('、'))}</small>` : ''}`],
     ['regex', '正则', pv.regex, x => `${x.enabled === false ? '<span class="pill plain sm">停用</span>' : ''}<span class="ell">${esc(x.name)}</span>`],
     ['script', '脚本', pv.scripts, x => `${x.enabled === false ? '<span class="pill plain sm">停用</span>' : ''}<span class="ell">${esc((x.folder ? x.folder + ' / ' : '') + x.name)}</span><small>${esc({ character: '角色脚本', preset: '预设脚本', global: '全局脚本' }[x.scope] || '')}</small>`]].filter(([, , l]) => l?.length);
+  // 后台刷新（文件变化、登录状态等）会重绘：同一个作品时保留展开的清单与滚动位置
+  const same = b.dataset.detail === d.id, open = same ? new Set([...b.querySelectorAll('details[open]')].map(x => x.dataset.k)) : new Set(), scroll = same ? b.scrollTop : 0;
+  b.dataset.detail = d.id;
   b.innerHTML = `<div class="page">${back}
     <div class="wd-grid">
       <div class="wd-main">
@@ -206,7 +210,7 @@ function renderDetail(b) {
         ${changelog || cp ? `<div class="card"><div class="card-h">${icon('sparkles')}本版更新 · v${esc(p.version)}</div><div class="card-b">${changelog ? `<div class="wd-text">${esc(changelog)}</div>` : ''}${cp?.summary ? `<div class="wd-chg">与 v${esc(cp.from)} 相比：<span class="pill ok sm">新增 ${cp.summary.added}</span><span class="pill info sm">修改 ${cp.summary.modified}</span><span class="pill error sm">删除 ${cp.summary.removed}</span></div>` : ''}</div></div>` : ''}
         <div class="card"><div class="card-h">${icon('layers')}内容 <span class="count">${pv.artifacts.length} 个 artifact · ${fmtSize(manifest?.total_bytes)}</span></div>
           <div class="wd-arts">${pv.artifacts.map(a => `<div class="wd-art"><span class="kind ${esc(a.kind)}">${esc(ART_LABEL[a.kind] || a.kind)}</span><b class="ell">${esc(a.name)}</b><span class="muted small">${a.entry_count != null ? a.entry_count + ' 项' : ''}</span></div>`).join('')}</div>
-          ${lists.map(([k, t, l, row]) => `<details class="wd-list"><summary>${icon(ART_ICON[k], 'xs')}${t} <span class="count">${l.length}</span></summary><div class="wd-items">${l.slice(0, 300).map(x => `<div class="wd-item">${row(x)}</div>`).join('')}${l.length > 300 ? `<div class="muted small">还有 ${l.length - 300} 项…</div>` : ''}</div></details>`).join('')}
+          ${lists.map(([k, t, l, row]) => `<details class="wd-list" data-k="${k}" ${open.has(k) ? 'open' : ''}><summary>${icon(ART_ICON[k], 'xs')}${t} <span class="count">${l.length}</span></summary><div class="wd-items">${l.slice(0, 300).map(x => `<div class="wd-item">${row(x)}</div>`).join('')}${l.length > 300 ? `<div class="muted small">还有 ${l.length - 300} 项…</div>` : ''}</div></details>`).join('')}
           ${pv.overrides ? `<div class="wd-note">${icon('sliders', 'xs')}安装时会调整 ${pv.overrides} 条原版资源的启用状态，卸载时恢复。</div>` : ''}
         </div>
         ${hist?.length > 1 ? `<div class="card"><div class="card-h">${icon('clock')}版本历史</div><div class="card-b wd-hist">${hist.map(h => `<div><b>v${esc(h.version)}</b><span class="muted small">${esc(ts(h.reviewed_at || h.created_at))}</span><div class="wd-text small">${esc(h.changelog || '（没有更新说明）')}</div></div>`).join('')}</div></div>` : ''}
@@ -234,6 +238,7 @@ function renderDetail(b) {
         ${p.dependencies?.length ? `<div class="card"><div class="card-h">${icon('link')}依赖 <span class="count">${p.dependencies.length}</span></div><div class="card-b wd-deps">${p.dependencies.map(dep => { const l = localFor(dep.project_id); return `<div class="wd-dep" data-act="ws-detail" data-id="${esc(dep.project_id)}" title="查看这个作品">${icon('package', 'xs')}<span class="ell">${esc(l?.name || dep.project_id)}</span><span class="muted small">≥ v${esc(dep.min_version)}</span>${l ? `<span class="pill ${localMax(l) >= dep.min_version ? 'ok' : 'warn'} sm">本地 v${localMax(l)}</span>` : ''}</div>`; }).join('')}<div class="fhint">安装前需要先在工坊里安装这些作品。</div></div></div>` : ''}
       </div>
     </div></div>`;
+  b.scrollTop = scroll;
 }
 
 // ---------- 我的作品 ----------

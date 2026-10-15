@@ -31,6 +31,8 @@ const env = {
   fetch: (...a) => globalThis.fetch(...a),
   // 缩略图（Electron nativeImage）；没有时返回原图
   thumb: null,
+  // 缩略图磁盘缓存（发现页封面原图常有几 MB，缓存缩好的 JPEG，下次启动不再重新下载）
+  cacheDir: '',
   log: () => {},
   emit: () => {},
 };
@@ -117,7 +119,12 @@ async function raw(p, { method = 'GET', body, headers = {}, auth = false, token,
   }
   return r;
 }
-async function request(p, opts) { const r = await raw(p, opts); return r.status === 204 ? undefined : r.json(); }
+async function request(p, opts) {
+  const r = await raw(p, opts);
+  if (r.status === 204) return undefined;
+  // 代理、网关或登录页可能返回 HTML：给出能看懂的提示，而不是 JSON 解析错误
+  try { return await r.json(); } catch { throw new WorkshopError('创意工坊返回了无法识别的内容，请检查网络或服务器地址', r.status, 'bad_response'); }
+}
 const enc = encodeURIComponent;
 
 // ---------- Discord 登录（与官方客户端相同：系统浏览器授权，客户端轮询交换结果） ----------
@@ -166,6 +173,15 @@ function listParams(b) {
   if (KINDS.includes(b.kind)) q.set('kind', b.kind);
   if (String(b.tag || '').trim()) q.set('tag', String(b.tag).trim());
   return q;
+}
+// 服务器返回的数字字段统一转成数字（界面会把它们直接拼进页面）
+const NUM_KEYS = ['version', 'latest_version', 'published_version', 'downloads_count', 'likes_count', 'favorites_count', 'created_at', 'updated_at', 'archived_at', 'entry_count', 'index', 'min_version', 'added', 'modified', 'removed', 'from', 'to', 'reviewed_at', 'total_bytes', 'artifact_count', 'byte_size'];
+function numify(v) {
+  if (Array.isArray(v)) return v.map(numify);
+  if (!isObj(v)) return v;
+  const out = {};
+  for (const [k, x] of Object.entries(v)) out[k] = NUM_KEYS.includes(k) && x != null && typeof x !== 'object' ? (Number(x) || 0) : numify(x);
+  return out;
 }
 // 公开详情里的内容预览带着全部正文，界面只需要名称与开关
 function slimDetail(d) {
@@ -324,18 +340,18 @@ export async function handle(route, b = {}) {
         if (session()) { try { await request('/api/auth/logout', { method: 'POST', auth: true, timeout: 10000 }); } catch {} }
         clearSession(); return state();
       }
-      case 'ws.list': return await request('/api/projects?' + listParams(b));
-      case 'ws.detail': return slimDetail(await request(`/api/projects/${enc(b.id)}`, { timeout: 60000 }));
+      case 'ws.list': return numify(await request('/api/projects?' + listParams(b)));
+      case 'ws.detail': return numify(slimDetail(await request(`/api/projects/${enc(b.id)}`, { timeout: 60000 })));
       case 'ws.versions': {
         const ids = [...new Set((b.ids || []).filter(x => typeof x === 'string' && x && x.length <= 128))].slice(0, 100);
         if (!ids.length) return { items: [], unavailable: [] };
-        return await request('/api/projects/versions/batch', { method: 'POST', body: { ids } });
+        return numify(await request('/api/projects/versions/batch', { method: 'POST', body: { ids } }));
       }
       case 'ws.download': return { ok: true, ...(await download(b)) };
       case 'ws.downloadOwn': return { ok: true, ...(await downloadOwn(b)) };
-      case 'ws.engagement': return await request(`/api/projects/${enc(b.id)}/engagement`, { auth: true });
-      case 'ws.engage': return await request(`/api/projects/${enc(b.id)}/engagement`, { method: 'POST', body: { kind: b.kind, enabled: !!b.enabled }, auth: true });
-      case 'ws.mine': return await request('/api/my/projects', { auth: true });
+      case 'ws.engagement': return numify(await request(`/api/projects/${enc(b.id)}/engagement`, { auth: true }));
+      case 'ws.engage': return numify(await request(`/api/projects/${enc(b.id)}/engagement`, { method: 'POST', body: { kind: b.kind, enabled: !!b.enabled }, auth: true }));
+      case 'ws.mine': return numify(await request('/api/my/projects', { auth: true }));
       case 'ws.editor': {
         const e = await request(`/api/projects/${enc(b.id)}/edit`, { auth: true, timeout: 60000 });
         return { project: e.project, latest: { version: e.latest?.version || 0, changelog: e.latest?.changelog || '', review_status: e.latest?.review_status || 'draft', artifacts: (e.latest?.bundle?.artifacts || []).map(a => ({ kind: a.kind, name: a.name })) } };
@@ -345,7 +361,7 @@ export async function handle(route, b = {}) {
         const src = localSource(path.resolve(b.path));
         const meta = metaOf(src.project);
         const out = { meta, size: src.size, limit: LIMITS.bundle, artifacts: src.bundle.artifacts.length, warns: src.warns, cover: src.cover ? { type: src.cover.type, size: src.cover.buf.length, ok: COVER_TYPES.has(src.cover.type) && src.cover.buf.length <= LIMITS.cover } : null, localId: src.project.id };
-        if (b.id) { const e = await request(`/api/projects/${enc(b.id)}/edit`, { auth: true, timeout: 60000 }); out.remote = e.project; out.diff = metaDiff(meta, e.project); }
+        if (b.id) { const e = await request(`/api/projects/${enc(b.id)}/edit`, { auth: true, timeout: 60000 }); out.remote = numify(e.project); out.diff = metaDiff(meta, e.project); }
         return out;
       }
       case 'ws.create': {
@@ -370,7 +386,7 @@ export async function handle(route, b = {}) {
         setLink(src.project.id, b.id);
         let submitted = false;
         if (b.submit && !r.auto_published) { await request(`/api/projects/${enc(b.id)}/submit`, { method: 'POST', auth: true }); submitted = true; }
-        return { ok: true, version: r.version, autoPublished: !!r.auto_published, submitted };
+        return { ok: true, version: Number(r.version) || 0, autoPublished: !!r.auto_published, submitted };
       }
       case 'ws.update': return await request(`/api/projects/${enc(b.id)}`, { method: 'PATCH', body: b.fields || {}, auth: true });
       case 'ws.cover': return await uploadCoverFrom(b.id, b.file ? imageFile(path.resolve(b.file)) : core.coverOf(path.resolve(b.path)));
@@ -388,12 +404,37 @@ export async function handle(route, b = {}) {
 
 // 封面图（发现页与“我的作品”的缩略图），在主进程取回后交给 app:// 协议
 const covers = new Map();
+const COVER_DISK_MAX = 400;
+function diskCover(key) {
+  if (!env.cacheDir) return null;
+  const file = path.join(env.cacheDir, crypto.createHash('sha1').update(key).digest('hex'));
+  return {
+    read() { try { const b = fs.readFileSync(file); const n = b.indexOf(10); return { type: b.subarray(0, n).toString('latin1'), buf: b.subarray(n + 1) }; } catch { return null; } },
+    write(c) {
+      try {
+        fs.mkdirSync(env.cacheDir, { recursive: true });
+        fs.writeFileSync(file, Buffer.concat([Buffer.from(c.type + '\n', 'latin1'), c.buf]));
+        // 超过上限时删掉最久没用的一批
+        const names = fs.readdirSync(env.cacheDir);
+        if (names.length > COVER_DISK_MAX) {
+          names.map(n => ({ n, t: fs.statSync(path.join(env.cacheDir, n)).mtimeMs })).sort((a, b) => a.t - b.t)
+            .slice(0, names.length - COVER_DISK_MAX + 50).forEach(x => fs.rmSync(path.join(env.cacheDir, x.n), { force: true }));
+        }
+      } catch {}
+    },
+  };
+}
 export async function cover(id, own, v, width = 0) {
   const k = (own ? 'own:' : '') + store.base + '|' + id + '|' + v + '|' + width;
   if (covers.has(k)) { const c = covers.get(k); covers.delete(k); covers.set(k, c); return c; }
-  const r = await raw(`/api/projects/${enc(id)}/${own ? 'edit-cover' : 'cover'}`, { auth: !!own, timeout: 20000 });
-  let c = { type: (r.headers.get('content-type') || 'application/octet-stream').split(';')[0], buf: Buffer.from(await r.arrayBuffer()) };
-  if (width && env.thumb) { try { c = env.thumb(c, width) || c; } catch {} }
+  const disk = width ? diskCover(k) : null;
+  let c = disk?.read();
+  if (!c) {
+    const r = await raw(`/api/projects/${enc(id)}/${own ? 'edit-cover' : 'cover'}`, { auth: !!own, timeout: 20000 });
+    c = { type: (r.headers.get('content-type') || 'application/octet-stream').split(';')[0], buf: Buffer.from(await r.arrayBuffer()) };
+    if (width && env.thumb) { try { c = env.thumb(c, width) || c; } catch {} }
+    if (/^image\//.test(c.type)) disk?.write(c);
+  }
   covers.set(k, c);
   let total = 0; for (const x of covers.values()) total += x.buf.length;
   while (covers.size > 1 && (covers.size > 200 || total > 64 * 1048576)) { const [first, x] = covers.entries().next().value; covers.delete(first); total -= x.buf.length; }

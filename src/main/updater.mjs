@@ -67,6 +67,8 @@ export async function check() {
 async function runDownload() {
   const a = latest?.asset;
   if (!a?.url) fail('这个版本没有可下载的 ' + (env.kind === 'portable' ? '免安装版' : '安装版') + ' 文件，请到发布页下载');
+  // 下载后要直接运行：GitHub 没给 SHA-256 时不在程序里下载，请到发布页手动下载
+  if (!a.sha256) fail('这个版本的文件没有校验值，为安全起见请到发布页手动下载');
   const dir = env.downloadDir;
   fs.mkdirSync(dir, { recursive: true });
   const target = path.join(dir, a.name), part = target + '.part';
@@ -86,7 +88,7 @@ async function runDownload() {
     }
     await new Promise((res, rej) => out.end(err => (err ? rej(err) : res())));
     const got = hash.digest('hex');
-    if (a.sha256 && got !== a.sha256) { fs.rmSync(part, { force: true }); fail('下载的文件校验失败（SHA-256 不一致），已删除，请重试'); }
+    if (got !== a.sha256) { fs.rmSync(part, { force: true }); fail('下载的文件校验失败（SHA-256 不一致），已删除，请重试'); }
     if (a.size && download.received !== a.size) { fs.rmSync(part, { force: true }); fail('下载的文件不完整，已删除，请重试'); }
     fs.rmSync(target, { force: true });
     fs.renameSync(part, target);
