@@ -98,6 +98,16 @@ test('世界书的条件：只在这个副本里、主神空间外、副本结�
   assert.equal(render(ch1x.content, at('第二章')), '');
 });
 
+test('多条条目一起执行（提示词模板的做法）时不会重复声明变量', () => {
+  const d = normalizeScenario(sample());
+  const all = Object.values(scenarioWorldbook(d).entries).map(e => e.content).join('\n');
+  const stat = { 世界: { 名称: '艾泽拉斯', 因果轨道: { 当前阶段: '第二章' } }, 系统状态: { 是否在主神空间: false } };
+  const out = render(all, stat);
+  assert.match(out, /【原著章节】第二章\n北伐/);
+  assert.match(out, /【种族资料】兽人/);
+  assert.doesNotMatch(out, /【原著章节】第一章\n/);
+});
+
 test('世界书与数据是否一致：缺少、过期、一致；官方客户端格式也认得', () => {
   const d = normalizeScenario(sample());
   const data = { kind: 'data', format: 'json', name: 'a.scenario.json', content: d };
@@ -109,6 +119,9 @@ test('世界书与数据是否一致：缺少、过期、一致；官方客户�
   const official = { kind: 'worldbook', format: 'json', name: '作品.scenario.worldbook.json', content: { entries: scenarioEntryPlan(d).map(p => ({ name: p.name, enabled: true, strategy: { type: p.chapter ? 'constant' : 'selective', keys: p.keys }, position: { type: 'before_character_definition', role: 'system', order: p.order }, content: '<%_\nif (official) {\n_%>\n' + p.body + '\n<%_ } _%>', extra: { reincarnationWorkshop: { scenario: true, scenarioWorld: d.world } } })) } };
   assert.equal(isScenarioBook(official), true);
   assert.equal(scenarioBookState([official, data]).state, 'ok');
+  // 变量直接声明在最外层的旧写法：内容一致也要重新生成
+  const unscoped = { ...official, content: { entries: official.content.entries.map(e => ({ ...e, content: '<%_\nconst __rw = getMessageVar("stat_data") || {};\nif (x) {\n_%>\n' + bodyOf(e.content) + '\n<%_ } _%>' })) } };
+  assert.deepEqual(scenarioBookState([unscoped, data]), { state: 'stale', reason: 'scope', a: 1, w: 0 });
   assert.equal(scenarioBookState([{ ...data, content: { ...d, world: '' } }]).state, 'invalid');
 });
 

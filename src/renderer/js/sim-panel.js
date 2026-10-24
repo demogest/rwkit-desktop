@@ -43,7 +43,7 @@ const pill = (on, label, title = '') => `<span class="sp-pill ${on === true ? 'o
 function headHtml() {
   const s = P.status, v = P.versions;
   return `<div class="sp-head">
-    <div class="sp-title">${icon('tavern')}<b>模拟酒馆</b><span class="muted small ell" title="${P.mode === 'local' ? '你自己运行的 SillyTavern' : '随 rwkit 附带的官方版本'}">${P.mode === 'local' ? esc(P.localUrl) : `SillyTavern ${esc(v.sillytavern || '')} · 酒馆助手 ${esc(v.tavernHelper || '')}`}</span></div>
+    <div class="sp-title">${icon('tavern')}<b>模拟酒馆</b><span class="muted small ell" title="${P.mode === 'local' ? '你自己运行的 SillyTavern' : '随 rwkit 附带的官方版本'}">${P.mode === 'local' ? esc(P.localUrl) : `SillyTavern ${esc(v.sillytavern || '')} · 酒馆助手 ${esc(v.tavernHelper || '')}${v.promptTemplate ? ` · 提示词模板 ${esc(v.promptTemplate)}` : ''}`}</span></div>
     <div class="sp-tools">
       <button class="btn ghost icon sm" data-a="reload" title="重新加载酒馆页面">${icon('refresh')}</button>
       <button class="btn ghost icon sm" data-a="devtools" title="打开酒馆页面的开发者工具">${icon('code')}</button>
@@ -315,7 +315,7 @@ async function switchMode(mode, change) {
 }
 function helpFlow() {
   modal({ cls: 'mid', title: '模拟酒馆', body: `
-    <p>这里运行的是随 rwkit 附带的<b>官方 SillyTavern 前端</b>与<b>酒馆助手</b>，服务器由 rwkit 模拟，数据与你自己的酒馆完全分开。角色卡的脚本、MVU、创意工坊、作品的脚本按钮与前端页面都和在酒馆里一样运行。</p>
+    <p>这里运行的是随 rwkit 附带的<b>官方 SillyTavern 前端</b>、<b>酒馆助手</b>与<b>提示词模板</b>，服务器由 rwkit 模拟，数据与你自己的酒馆完全分开。角色卡的脚本、MVU、创意工坊、作品的脚本按钮与前端页面都和在酒馆里一样运行，世界书与预设里的 EJS 在生成回复时照常执行。</p>
     <h4>开始</h4>
     <ol><li>在左侧“角色管理”里导入轮回战场角色卡并打开它，在提示里允许它的脚本与世界书。</li>
     <li>等状态栏里的 MVU 与创意工坊就绪后，点“安装到模拟酒馆”。草稿也可以直接安装；勾选“保存后自动重装”，在 rwkit 里改完保存就会重新安装。</li>
@@ -326,7 +326,7 @@ function helpFlow() {
     <p>“变量”里可以直接改 MVU 变量与酒馆助手的各种变量，回车后立即写入。MVU 变量修改后会先广播“变量更新结束”事件，监听它的脚本（属性计算、状态栏等）会照常响应；页面没有刷新时点“重新渲染”。</p>
     <h4>生成回复</h4>
     <p>在“AI 回复”里选择一个 AI 帮写的接口后，酒馆里的发送、重新生成以及脚本的 generate 都会用它生成（按接口计费）；酒馆自己的“API 连接”设置不起作用。不选时可以手动插入 AI 消息（包括 MVU 的更新命令）推进剧情。</p>
-    <p class="muted small">SillyTavern（AGPL-3.0）与酒馆助手（PolyForm Noncommercial 1.0.0）均未经修改，许可证与源代码地址见安装目录的 sim/NOTICE.txt。</p>` });
+    <p class="muted small">SillyTavern（AGPL-3.0）、酒馆助手（PolyForm Noncommercial 1.0.0）与提示词模板（AGPL-3.0）均未经修改，许可证与源代码地址见安装目录的 sim/NOTICE.txt。</p>` });
 }
 
 // ---------- 启动与轮询 ----------

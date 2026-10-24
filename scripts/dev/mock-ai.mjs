@@ -1,8 +1,10 @@
 // 开发用：模拟 OpenAI 接口（/v1/models、/v1/chat/completions 与 /v1/responses 流式），给 AI 帮写做界面自测
-// 用法：node scripts/dev/mock-ai.mjs [端口]，默认 18765；在“AI 帮写设置”里填 http://127.0.0.1:端口/v1，API key 填 test-key
+// 用法：node scripts/dev/mock-ai.mjs [端口] [保存最近一次请求的文件]，默认 18765；在“AI 帮写设置”里填 http://127.0.0.1:端口/v1，API key 填 test-key
 import http from 'node:http';
+import fs from 'node:fs';
 
 const port = Number(process.argv[2]) || 18765;
+const dump = process.argv[3] || '';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function answer(body) {
   const sys = body.instructions ?? body.messages?.[0]?.content ?? '';
@@ -32,6 +34,7 @@ http.createServer(async (req, res) => {
   if (!responses && !req.url.endsWith('/chat/completions')) { res.writeHead(404); res.end('{}'); return; }
   if (req.headers.authorization !== 'Bearer test-key') { res.writeHead(401, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'bad key' } })); return; }
   const body = JSON.parse(raw || '{}');
+  if (dump) fs.writeFileSync(dump, JSON.stringify(body, null, 1));
   console.log(req.url, body.model, responses ? 'responses' : 'chat');
   res.writeHead(200, { 'content-type': 'text/event-stream' });
   const out = answer(body);

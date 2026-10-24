@@ -20,6 +20,8 @@ const DIRS = {
 };
 const CONTENT_DIR = { settings: '', theme: 'themes', openai_preset: 'OpenAI Settings', context: 'context', instruct: 'instruct', sysprompt: 'sysprompt', reasoning: 'reasoning', avatar: 'User Avatars', moving_ui: 'movingUI', quick_replies: 'QuickReplies' };
 export const TH_DIR = 'JS-Slash-Runner';
+// 随附的第三方扩展（放在用户扩展的位置）：酒馆助手、提示词模板（执行世界书与提示词里的 EJS）→ 运行文件夹里的子文件夹
+const EXTENSIONS = { [TH_DIR]: 'th', 'ST-Prompt-Template': 'pt' };
 // 与预览无关的内置扩展：生图、语音、翻译、向量、表情、图库、总结、资源下载、附件
 const OFF_EXTENSIONS = ['stable-diffusion', 'tts', 'translate', 'vectors', 'caption', 'expressions', 'gallery', 'memory', 'assets', 'attachments'];
 
@@ -195,7 +197,7 @@ export function createServer({ vendorDir, dataDir, log = () => {}, version = {},
     'GET /api/ping': () => new Response(null, { status: 204 }),
     'POST /api/ping': () => new Response(null, { status: 204 }),
     'POST /api/users/me': () => json({ handle: 'default-user', name: 'User', avatar: '/img/default-user.png', admin: true, password: false, created: 0 }),
-    'GET /api/extensions/discover': () => json([...systemExtensions(), { type: 'local', name: 'third-party/' + TH_DIR }]),
+    'GET /api/extensions/discover': () => json([...systemExtensions(), ...Object.keys(EXTENSIONS).filter(n => fs.existsSync(path.join(vendorDir, EXTENSIONS[n], 'manifest.json'))).map(n => ({ type: 'local', name: 'third-party/' + n }))]),
     'POST /api/extensions/version': () => json({ currentBranchName: 'release', currentCommitHash: '', isUpToDate: true, remoteUrl: '' }),
     'POST /api/secrets/read': () => json({}),
     'POST /api/secrets/settings': () => json({ allowKeysExposure: false }),
@@ -342,9 +344,9 @@ export function createServer({ vendorDir, dataDir, log = () => {}, version = {},
         const target = inside(base, f);
         return (target && await file(target)) || await file(path.join(pub, 'img', 'ai4.png')) || new Response(null, { status: 404 });
       }
-      // 酒馆助手放在用户扩展的位置
-      const th = /^\/scripts\/extensions\/third-party\/JS-Slash-Runner(\/.*)$/.exec(p);
-      if (th) { const t = inside(path.join(vendorDir, 'th'), th[1]); return (t && await file(t)) || new Response(null, { status: 404 }); }
+      // 随附的第三方扩展
+      const ext = /^\/scripts\/extensions\/third-party\/([^/]+)(\/.*)$/.exec(p);
+      if (ext && Object.hasOwn(EXTENSIONS, ext[1])) { const t = inside(path.join(vendorDir, EXTENSIONS[ext[1]]), ext[2]); return (t && await file(t)) || new Response(null, { status: 404 }); }
       // 用户数据里的图片
       for (const [prefix, k] of [['/characters/', 'characters'], ['/User Avatars/', 'avatars'], ['/backgrounds/', 'backgrounds'], ['/user/images/', 'userImages'], ['/user/files/', 'files']]) {
         if (p.startsWith(prefix)) { const t = inside(dir(k), p.slice(prefix.length)); return (t && await file(t)) || new Response(null, { status: 404 }); }

@@ -146,18 +146,19 @@ function guardOf(world) {
 function chapterOn(title, names) {
   return `(() => { const __t = ${q(names)}; const __on = __t.includes(__stage) ? __stage : (__t.filter(n => __stage.includes(n)).sort((a, b) => b.length - a.length)[0] || (!__stage || __stage === '待初始化' ? __t[0] : '')); return __on === ${q(title)}; })()`;
 }
+// 提示词模板会把同时出现的条目放在一起执行：每条的变量放在自己的 { } 里，避免重复声明
 const wrap = (cond, body) => [
-  '<%_',
+  '<%_ {',
   "const __rw = getMessageVar('stat_data', { defaults: {} }) || {};",
   "const __w = _.get(__rw, '世界', {});",
   "const __stage = String(_.get(__w, '因果轨道.当前阶段', '') || '').trim();",
   `if (${cond}) {`,
   '_%>',
   body,
-  '<%_ } _%>',
+  '<%_ } } _%>',
 ].join('\n');
 // 条目正文去掉外层的条件，只留可见内容（比较是否需要重新生成时用，与生成方式无关）
-export const bodyOf = content => String(content ?? '').replace(/^<%_[\s\S]*?_%>\n/, '').replace(/\n<%_ } _%>\s*$/, '');
+export const bodyOf = content => String(content ?? '').replace(/^<%_[\s\S]*?_%>\n/, '').replace(/\n<%_ }( })? _%>\s*$/, '');
 function keywordsOf(r) {
   const all = [r.title, ...(r.type === 'area' && r.location ? [r.location] : []), ...String(r.keywords || '').split(KEY_SPLIT)];
   return [...new Set(all.map(str).filter(Boolean))].slice(0, 32);
@@ -187,6 +188,8 @@ export function scenarioWorldbook(d) {
   });
   return { entries };
 }
+// 旧写法：变量直接声明在最外层（没有包在 { } 里）
+const UNSCOPED = /^<%_\s*\n\s*const\s+__rw\b/;
 // 副本世界书：条目带有工坊的副本标记，或者名称是 *.scenario.worldbook.json
 const entriesOf = c => { if (typeof c === 'string') { try { c = JSON.parse(c); } catch { return []; } } const e = Array.isArray(c) ? c : c?.entries; return Array.isArray(e) ? e : isObj(e) ? Object.values(e) : []; };
 const marked = e => e?.extra?.reincarnationWorkshop?.scenario === true;
@@ -206,5 +209,8 @@ export function scenarioBookState(artifacts = []) {
     String(e.comment ?? e.name ?? ''), Number(e.order ?? e.position?.order), [...(Array.isArray(e.key) ? e.key : e.strategy?.keys || [])].sort(), bodyOf(e.content),
   ])).sort();
   const want = scenarioEntryPlan(d).map(p => JSON.stringify([p.name, p.order, [...p.keys].sort(), p.body])).sort();
-  return { state: JSON.stringify(have) === JSON.stringify(want) ? 'ok' : 'stale', a: s.a, w };
+  if (JSON.stringify(have) !== JSON.stringify(want)) return { state: 'stale', a: s.a, w };
+  // 旧的写法（rwkit 1.2.1 与工坊客户端）：变量直接声明在最外层，多条条目同时出现时提示词模板会报“重复声明”
+  if (entriesOf(artifacts[w].content).some(e => marked(e) && UNSCOPED.test(String(e.content || '')))) return { state: 'stale', reason: 'scope', a: s.a, w };
+  return { state: 'ok', a: s.a, w };
 }

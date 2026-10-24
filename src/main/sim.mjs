@@ -1,4 +1,4 @@
-// 模拟酒馆：在单独的窗口里运行官方 SillyTavern 前端与酒馆助手（版本见 vendor/sim/versions.json），
+// 模拟酒馆：在单独的窗口里运行官方 SillyTavern 前端、酒馆助手与提示词模板（版本见 vendor/sim/versions.json），
 // SillyTavern 的服务器由 sim-server.mjs 模拟。右侧是 rwkit 的控制面板：安装作品、修改变量、插入消息、查看日志。
 // 酒馆页面在独立的会话里运行（不能访问 rwkit 的接口），面板通过主进程读写酒馆页面里的酒馆助手接口。
 import fs from 'node:fs';

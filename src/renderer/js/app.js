@@ -924,8 +924,8 @@ function settingsFlow() {
       <div class="row" style="margin-top:8px"><button class="btn sm" data-set="ws-server">${icon('globe')}服务器与下载位置…</button>${workshopState().st?.user ? '' : `<button class="btn sm discord" data-set="ws-login">${icon('discord')}使用 Discord 登录</button>`}</div></div>
     <div class="set-sec"><h4>AI 帮写</h4><div class="kv"><div class="k">接口</div><div class="v">${(() => { const a = aiState(); const p = a?.profiles.find(x => x.id === a.active); return p ? esc(p.name) + ' <span class="mono small muted">' + esc(p.model) + '</span>' + (a.profiles.length > 1 ? ' <span class="muted small">（共 ' + a.profiles.length + ' 个）</span>' : '') : '未设置'; })()}</div></div>
       <div class="row" style="margin-top:8px"><button class="btn sm" data-set="ai">${icon('sparkles')}接口与提示词…</button></div><div class="fhint">在编辑器、简介、更新说明等位置点“AI”，润色、代写、修改或审查内容。支持 OpenAI 兼容接口、Anthropic Claude 与 Google Gemini。</div></div>
-    <div class="set-sec"><h4>模拟酒馆</h4><div class="kv"><div class="k">版本</div><div class="v">${S.sim?.ok ? `SillyTavern ${esc(S.sim.versions.sillytavern)} · 酒馆助手 ${esc(S.sim.versions.tavernHelper)}` : `<span style="color:var(--err)">${esc(S.sim?.error || '不可用')}</span>`}</div></div>
-      <div class="row" style="margin-top:8px"><button class="btn sm" data-set="sim-reset" ${S.sim?.ok ? '' : 'disabled'}>${icon('trash')}清空模拟酒馆的数据…</button></div><div class="fhint">作品页的“模拟预览”在单独的窗口里运行随 rwkit 附带的官方 SillyTavern 前端与酒馆助手，数据与你自己的酒馆分开保存。</div></div>
+    <div class="set-sec"><h4>模拟酒馆</h4><div class="kv"><div class="k">版本</div><div class="v">${S.sim?.ok ? `SillyTavern ${esc(S.sim.versions.sillytavern)} · 酒馆助手 ${esc(S.sim.versions.tavernHelper)}${S.sim.versions.promptTemplate ? ` · 提示词模板 ${esc(S.sim.versions.promptTemplate)}` : ''}` : `<span style="color:var(--err)">${esc(S.sim?.error || '不可用')}</span>`}</div></div>
+      <div class="row" style="margin-top:8px"><button class="btn sm" data-set="sim-reset" ${S.sim?.ok ? '' : 'disabled'}>${icon('trash')}清空模拟酒馆的数据…</button></div><div class="fhint">作品页的“模拟预览”在单独的窗口里运行随 rwkit 附带的官方 SillyTavern 前端、酒馆助手与提示词模板，数据与你自己的酒馆分开保存。</div></div>
     <div class="set-sec"><h4>SillyTavern</h4><div class="kv"><div class="k">安装桥</div><div class="v">${tavernState().st?.running ? (tavernState().st.connected ? '已连接' + (tavernState().st.client?.character ? '（当前角色：' + esc(tavernState().st.client.character) + '）' : '') : '已启用，等待 SillyTavern 连接') : '未启用'} <span class="muted small">127.0.0.1:${esc(tavernState().st?.port || '')}</span></div></div>
       <div class="row" style="margin-top:8px"><button class="btn sm" data-set="st-setup">${icon('tavern')}连接设置…</button></div><div class="fhint">通过酒馆助手脚本“rwkit 安装桥”，把离线包交给 SillyTavern 里的创意工坊安装。</div></div>
     <div class="set-sec"><h4>关于</h4><div class="kv">
@@ -968,7 +968,7 @@ function helpFlow() {
     <li>脚本保存前会检查语法，出错时点提示跳到对应行。</li>
     <li>“检查结果”里的每条提示都可以点“去修改”，直接跳到对应的条目。</li></ul>
     <h4>模拟酒馆</h4>
-    <ul><li>作品页右上角的“模拟预览”打开模拟酒馆：随 rwkit 附带的官方 SillyTavern 前端与酒馆助手，数据与你自己的酒馆分开。</li>
+    <ul><li>作品页右上角的“模拟预览”打开模拟酒馆：随 rwkit 附带的官方 SillyTavern 前端、酒馆助手与提示词模板（执行 EJS），数据与你自己的酒馆分开。</li>
     <li>先在模拟酒馆里导入并打开轮回战场角色卡（允许它的脚本），再在右侧面板点“安装到模拟酒馆”。草稿也能安装，可以设为保存后自动重装。</li>
     <li>面板里可以一键插入触发正则页面的消息、实时修改 MVU 与酒馆助手变量、查看页面的错误日志；选择 AI 帮写的接口后还能直接生成回复试玩。</li>
     <li>也可以在面板顶部改用你自己正在运行的 SillyTavern（会直接改动它的数据）。</li></ul>

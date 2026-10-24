@@ -144,7 +144,7 @@ rwpack 工具包里的 `rwkit.mjs` 是处理离线包的命令行工具（修复
 
 ### 模拟酒馆
 
-作品页右上角的“模拟预览”打开一个单独的窗口，里面运行随 rwkit 附带的**官方 SillyTavern 前端**（1.19.0）与**酒馆助手**（4.11.3），服务器由 rwkit 模拟，不需要另外安装 Node.js 或 SillyTavern，数据也与你自己的酒馆完全分开。角色卡的脚本、MVU、创意工坊，以及作品里脚本做出来的按钮、悬浮窗、终端界面和正则生成的页面，都和在酒馆里一样运行：
+作品页右上角的“模拟预览”打开一个单独的窗口，里面运行随 rwkit 附带的**官方 SillyTavern 前端**（1.19.0）、**酒馆助手**（4.11.3）与**提示词模板**（1.17.9），服务器由 rwkit 模拟，不需要另外安装 Node.js 或 SillyTavern，数据也与你自己的酒馆完全分开。角色卡的脚本、MVU、创意工坊，以及作品里脚本做出来的按钮、悬浮窗、终端界面和正则生成的页面，都和在酒馆里一样运行；世界书与预设里的 EJS 在生成回复时照常执行：
 
 - **导入宿主卡**：模拟酒馆里不预置角色卡，在左侧“角色管理 → 导入角色”导入轮回战场角色卡并打开它，在提示里允许它的正则、世界书与酒馆助手脚本。
 - **安装作品**：等右侧面板显示 MVU 与创意工坊就绪后，点“安装到模拟酒馆”——走的是创意工坊自己的安装流程（与“安装到 SillyTavern”相同）。还没保存的草稿也能直接安装；打开“保存后自动重装”，在 rwkit 里改完保存就会重新安装。
@@ -281,11 +281,11 @@ cd rwkit-desktop
 npm install
 npm start          # 构建编辑器组件并以开发模式启动
 npm test           # 核心逻辑与创意工坊模块测试
-npm run vendor:sim # 准备模拟酒馆的运行文件（下载官方 SillyTavern 与酒馆助手，见下）
+npm run vendor:sim # 准备模拟酒馆的运行文件（下载官方 SillyTavern、酒馆助手与提示词模板，见下）
 npm run dist       # 在 dist/ 生成安装版与免安装版
 ```
 
-模拟酒馆的运行文件放在 `vendor/sim/`（不在仓库里）。`npm run vendor:sim` 下载 SillyTavern 与酒馆助手的发布版本，在 `vendor/.cache/` 里安装 SillyTavern 的依赖并用它自己的 webpack 配置编译 `lib.js`，再只复制前端需要的文件（约 30 MB）。如果本机已经运行过同一版本的 SillyTavern，可以用它启动时编译好的 `lib.js`，省去安装依赖：`npm run vendor:sim -- --lib <SillyTavern>/data/_webpack/<编号>/output/lib.js`。
+模拟酒馆的运行文件放在 `vendor/sim/`（不在仓库里）。`npm run vendor:sim` 下载 SillyTavern、酒馆助手与提示词模板的发布版本，在 `vendor/.cache/` 里安装 SillyTavern 的依赖并用它自己的 webpack 配置编译 `lib.js`，再只复制前端需要的文件（约 50 MB）。如果本机已经运行过同一版本的 SillyTavern，可以用它启动时编译好的 `lib.js`，省去安装依赖：`npm run vendor:sim -- --lib <SillyTavern>/data/_webpack/<编号>/output/lib.js`。
 
 > npm 11 安装依赖时可能跳过 Electron 的下载脚本：如果 `node_modules/electron/dist` 不存在，运行一次 `node node_modules/electron/install.js`。
 

@@ -20,6 +20,7 @@ put('st/default/settings.json', JSON.stringify({ firstRun: true, username: 'User
 put('st/default/presets/openai/Default.json', JSON.stringify({ temperature: 1 }));
 put('st/default/user-default.png', 'png');
 put('th/manifest.json', JSON.stringify({ display_name: '酒馆助手' }));
+put('pt/manifest.json', JSON.stringify({ display_name: '提示词模板' }));
 const logs = [];
 const srv = createServer({ vendorDir: vendor, dataDir: path.join(tmp, 'data'), version: { sillytavern: '1.19.0' }, log: m => logs.push(m) });
 const call = (method, p, body) => srv.handle(new Request('rwsim://st' + p, { method, ...(body instanceof FormData ? { body } : body !== undefined ? { body: JSON.stringify(body), headers: { 'content-type': 'application/json' } } : {}) }));
@@ -53,11 +54,15 @@ test('首次启动：生成设置，跳过欢迎向导，关闭与预览无关�
   assert.ok(!fs.existsSync(path.join(tmp, 'data/default-user/characters/x.png')), '不带示例角色');
 });
 
-test('扩展清单：内置扩展 + 酒馆助手；酒馆助手的文件从运行文件夹读取', async () => {
+test('扩展清单：内置扩展 + 酒馆助手 + 提示词模板；它们的文件从运行文件夹读取', async () => {
   const list = await (await call('GET', '/api/extensions/discover')).json();
-  assert.deepEqual(list.map(x => x.name).sort(), ['regex', 'third-party/JS-Slash-Runner', 'tts']);
+  assert.deepEqual(list.map(x => x.name).sort(), ['regex', 'third-party/JS-Slash-Runner', 'third-party/ST-Prompt-Template', 'tts']);
   const m = await (await call('GET', '/scripts/extensions/third-party/JS-Slash-Runner/manifest.json')).json();
   assert.equal(m.display_name, '酒馆助手');
+  const pt = await (await call('GET', '/scripts/extensions/third-party/ST-Prompt-Template/manifest.json')).json();
+  assert.equal(pt.display_name, '提示词模板');
+  // 只认随附的扩展名
+  for (const n of ['other', 'constructor', '__proto__']) assert.equal((await call('GET', `/scripts/extensions/third-party/${n}/manifest.json`)).status, 404, n);
 });
 
 test('首页默认简体中文；静态文件不能越出前端文件夹', async () => {

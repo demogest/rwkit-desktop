@@ -1,7 +1,7 @@
-// 准备“模拟酒馆”的运行文件：官方 SillyTavern 前端 + 官方酒馆助手，放在 vendor/sim/（打包时一起带上）
+// 准备“模拟酒馆”的运行文件：官方 SillyTavern 前端 + 官方酒馆助手 + 提示词模板，放在 vendor/sim/（打包时一起带上）
 // 用法：node scripts/vendor-sim.mjs [--force] [--lib <已编译的 lib.js>]
 //   --lib：直接使用同一版本 SillyTavern 启动时编译好的 lib.js（在它的 data/_webpack/*/output/ 里），不再安装依赖与编译
-//   下载 SillyTavern 与酒馆助手的发布版本 → 在缓存文件夹里安装 SillyTavern 的依赖并用它自己的 webpack 配置编译 lib.js
+//   下载 SillyTavern、酒馆助手与提示词模板的发布版本 → 在缓存文件夹里安装 SillyTavern 的依赖并用它自己的 webpack 配置编译 lib.js
 //   → 只复制前端需要的文件。下载与依赖缓存在 vendor/.cache/，再次运行会复用。
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,6 +10,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const ST_VERSION = '1.19.0';
 export const TH_VERSION = '4.11.3';
+// 提示词模板（ST-Prompt-Template）：轮回战场的世界书大量使用 EJS，由它在发送前执行；GitHub 上没有对应的标签，固定到提交
+export const PT_VERSION = '1.17.9';
+export const PT_COMMIT = 'd6f520d149aba146305b0b781ddd691d449c28d2';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CACHE = path.join(ROOT, 'vendor', '.cache');
 const OUT = path.join(ROOT, 'vendor', 'sim');
@@ -81,6 +84,9 @@ async function vendor(st, lib) {
   // ---------- 酒馆助手 ----------
   const thZip = await download(`https://codeload.github.com/N0VI028/JS-Slash-Runner/zip/refs/tags/${TH_VERSION}`, path.join(CACHE, `JS-Slash-Runner-${TH_VERSION}.zip`));
   const th = extract(thZip, path.join(CACHE, `JS-Slash-Runner-${TH_VERSION}`));
+  // ---------- 提示词模板 ----------
+  const ptZip = await download(`https://codeload.github.com/zonde306/ST-Prompt-Template/zip/${PT_COMMIT}`, path.join(CACHE, `ST-Prompt-Template-${PT_VERSION}.zip`));
+  const pt = extract(ptZip, path.join(CACHE, `ST-Prompt-Template-${PT_VERSION}`));
 
   // ---------- 输出 ----------
   fs.rmSync(OUT, { recursive: true, force: true });
@@ -97,7 +103,10 @@ async function vendor(st, lib) {
   fs.copyFileSync(path.join(st, 'LICENSE'), out('st/LICENSE'));
   // 酒馆助手：运行只需要清单、dist、lib 与 i18n
   for (const p of ['manifest.json', 'LICENSE', 'dist/index.js', 'dist/index.css', 'lib', 'i18n']) copy(path.join(th, p), out('th/' + p));
-  fs.writeFileSync(out('versions.json'), JSON.stringify({ sillytavern: ST_VERSION, tavernHelper: TH_VERSION, built: new Date().toISOString() }, null, 2));
+  // 提示词模板：运行只需要清单、dist（不含 source map）、libs、locales 与设置页面
+  for (const p of ['manifest.json', 'LICENSE', 'settings.html', 'libs', 'locales']) copy(path.join(pt, p), out('pt/' + p));
+  copy(path.join(pt, 'dist'), out('pt/dist'), src => !src.endsWith('.map'));
+  fs.writeFileSync(out('versions.json'), JSON.stringify({ sillytavern: ST_VERSION, tavernHelper: TH_VERSION, promptTemplate: PT_VERSION, built: new Date().toISOString() }, null, 2));
   fs.writeFileSync(out('NOTICE.txt'), `rwkit 模拟酒馆使用以下第三方软件（未经修改），均以各自的许可证发布：
 
 SillyTavern ${ST_VERSION}
@@ -108,6 +117,10 @@ SillyTavern ${ST_VERSION}
 酒馆助手（JS-Slash-Runner）${TH_VERSION}
   许可证：PolyForm Noncommercial 1.0.0（见 th/LICENSE），仅限非商业用途
   源代码：https://github.com/N0VI028/JS-Slash-Runner/tree/${TH_VERSION}
+
+提示词模板（ST-Prompt-Template）${PT_VERSION}
+  许可证：GNU AGPL v3（见 pt/LICENSE）
+  源代码：https://github.com/zonde306/ST-Prompt-Template/tree/${PT_COMMIT}
 `);
   const size = dir => fs.readdirSync(dir, { withFileTypes: true }).reduce((n, e) => n + (e.isDirectory() ? size(path.join(dir, e.name)) : fs.statSync(path.join(dir, e.name)).size), 0);
   say(`完成：${OUT}（${(size(OUT) / 1048576).toFixed(1)} MB）`);

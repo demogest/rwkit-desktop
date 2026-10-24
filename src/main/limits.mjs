@@ -100,7 +100,7 @@ export function publishIssues(pack, { cover = undefined } = {}) {
     for (const x of scenarioProblems(sc.data)) out.push(`${tag}副本：${x}`);
     const book = scenarioBookState(arts);
     if (book?.state === 'missing') out.push(`${tag}副本还没有生成世界书：在副本编辑器里保存一次即可`);
-    if (book?.state === 'stale') out.push(`“${arts[book.w].name}”副本世界书与副本数据不一致：在副本编辑器里保存一次即可重新生成`);
+    if (book?.state === 'stale') out.push(book.reason === 'scope' ? `“${arts[book.w].name}”副本世界书用的是旧写法：多条条目同时出现时提示词模板会报错（变量重复声明），在副本编辑器里保存一次即可重新生成` : `“${arts[book.w].name}”副本世界书与副本数据不一致：在副本编辑器里保存一次即可重新生成`);
   }
   for (const a of arts) {
     if (!a) continue;
