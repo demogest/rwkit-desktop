@@ -262,12 +262,15 @@ async function renderOverview(p, s) {
   });
   $('#pfcard').addEventListener('click', e => { const seg = e.target.closest('[data-seg="pfcat"] button'); if (seg) pickCategory(seg.dataset.v, s); });
 }
-// 工坊的三种分类：扩展 / 角色 / 开局商店。开局商店在服务器上属于“扩展”，由内容里的开局商店目录决定
+// 工坊的四种分类：扩展 / 角色 / 开局商店 / 副本。开局商店与副本在服务器上属于“扩展”，由内容里的数据决定（副本优先）
 const LIM = { name: 80, summary: 2000, tags: 12, tag: 24, changelog: 2000 };
+// 当前的分类：扩展里的具体类型由内容决定，副本数据优先于开局商店目录（与工坊相同）
+const curCat = (f, d) => displayCat(f.category, f.category === 'character' ? d.kind : d.hasScenario ? 'scenario' : d.hasStore ? 'store_catalog' : 'extension');
 function catField(f, d) {
-  const cur = displayCat(f.category, f.category === 'character' ? d.kind : d.hasStore ? 'store_catalog' : 'extension');
-  const seg = `<div class="seg" data-seg="pfcat">${[['extension', '扩展'], ['character', '角色'], ['store_catalog', '开局商店']].map(([v, t]) => `<button type="button" data-v="${v}" class="${cur === v ? 'on' : ''}">${t}</button>`).join('')}</div>`;
+  const cur = curCat(f, d);
+  const seg = `<div class="seg" data-seg="pfcat">${[['extension', '扩展'], ['character', '角色'], ['store_catalog', '开局商店'], ['scenario', '副本']].map(([v, t]) => `<button type="button" data-v="${v}" class="${cur === v ? 'on' : ''}">${t}</button>`).join('')}</div>`;
   const hint = cur === 'character' ? `角色用途：<b>${esc(KIND_LABEL[d.kind] || '世界书角色')}</b>（由内容决定：带 kind 为 opening_character / opening_partner 的数据时是开局角色 / 开局伙伴，否则是世界书角色）`
+    : cur === 'scenario' ? '项目里有副本数据（kind 为 scenario 的数据），工坊会把它归为“副本”。在“编辑内容”里打开副本数据，用副本编辑器填写世界与章节；保存时自动生成副本世界书。'
     : cur === 'store_catalog' ? '项目里有开局商店目录（kind 为 store_catalog 的数据），工坊会把它归为“开局商店”。'
       : '通用扩展：世界书、正则、脚本等。';
   return seg + `<div class="fhint">${hint}</div>`;
@@ -277,16 +280,49 @@ function markPfDirty() {
   $('[data-pf-state]').innerHTML = S.pf.dirty ? icon('dot') + '有未保存的修改' : '';
   $$('[data-act="pf-revert"],[data-act="pf-save"]').forEach(b => { b.disabled = !S.pf.dirty; });
 }
+// 没有改分类（被拒绝或取消）时，把分类按钮恢复成当前的分类
+function restoreCat() {
+  const f = S.pf?.form, d = S.pf?.data; if (!f || !d) return;
+  const cur = curCat(f, d);
+  $$('[data-seg="pfcat"] button').forEach(b => b.classList.toggle('on', b.dataset.v === cur));
+}
 async function pickCategory(v, s) {
   const d = S.pf.data;
-  if (v === 'character') { S.pf.form.category = 'character'; markPfDirty(); renderBody(curProject(), curSrc()); return; }
+  if (v === 'character') {
+    // 工坊允许角色作品带开局商店目录（按角色显示，安装时目录仍生效），但通常是误操作，先确认
+    if (d.hasStore || d.hasScenario) {
+      const what = d.hasScenario ? '副本数据' : '开局商店目录';
+      const ok = await ask({ title: '项目里有' + what, html: `<p>改为“角色”后，工坊按角色显示这个作品，但安装时${what}仍会生效。</p><p>如果要做角色作品，通常应该先在“编辑内容”里删除那份${what}。</p>`, buttons: [{ label: '取消', value: null }, { label: '仍然改为角色', value: 'ok' }] });
+      if (ok !== 'ok') { restoreCat(); return; }
+    }
+    S.pf.form.category = 'character'; markPfDirty(); renderBody(curProject(), curSrc()); return;
+  }
+  if (d.hasScenario && (v === 'extension' || v === 'store_catalog')) {
+    await ask({ title: '项目里有副本数据', html: '<p>带副本数据（kind 为 scenario 的数据）的扩展，工坊（客户端与服务器）都会归为“副本”，不能作为' + (v === 'extension' ? '通用扩展' : '开局商店') + '。要改分类，请先在“编辑内容”里删除那份副本数据。</p>', buttons: [{ label: '知道了', value: null, primary: true }] });
+    restoreCat();
+    return;
+  }
+  if (v === 'scenario' && d.hasScenario) { S.pf.form.category = 'extension'; markPfDirty(); renderBody(curProject(), curSrc()); return; }
+  if (v === 'scenario') {
+    const ok = await ask({ title: '改为副本', html: '<p>副本需要一份副本数据：会新建数据 artifact“' + esc(S.pf.form.name || '副本') + '.scenario.json”。在“编辑内容”里打开它，用副本编辑器填写世界名称、开局信息与章节；保存时自动生成副本世界书。</p>' + (d.hasStore ? '<p class="warn-text">项目里的开局商店目录仍会在安装时生效，但作品会归为“副本”。</p>' : '') + '<p class="muted small">写法见编写教程“副本”。</p>', buttons: [{ label: '取消', value: null }, { label: '添加副本数据', value: 'ok', primary: true }] });
+    if (ok !== 'ok') { restoreCat(); return; }
+    if (S.pf.dirty) await savePf();
+    busy(true);
+    try {
+      applyView(await apiOk('edit', { path: s.path, op: { op: 'addArtifact', kind: 'data', name: (S.pf?.form.name || curProject()?.name || '副本') + '.scenario.json', template: 'scenario' } }));
+      if (curProject()?.category === 'character') applyView(await apiOk('edit', { path: s.path, op: { op: 'project', fields: { category: 'extension' } } }));
+      S.pf = null; toast('已添加副本数据，在“编辑内容”里填写', 'ok');
+    } catch (err) { toast(err.message, 'error', 6000); }
+    busy(false); render(); return;
+  }
   if (v === 'extension' && d.hasStore) {
-    await ask({ title: '项目里有开局商店目录', html: '<p>带开局商店目录（kind 为 store_catalog 的数据）的扩展，工坊会归为“开局商店”。要改成通用扩展，请先在“编辑内容”里删除那份数据。</p>', buttons: [{ label: '知道了', value: null, primary: true }] });
+    await ask({ title: '项目里有开局商店目录', html: '<p>带开局商店目录（kind 为 store_catalog 的数据）的扩展，工坊（客户端与服务器）都会归为“开局商店”，不能作为通用扩展。要改成通用扩展，请先在“编辑内容”里删除那份数据。</p>', buttons: [{ label: '知道了', value: null, primary: true }] });
+    restoreCat();
     return;
   }
   if (v === 'store_catalog' && !d.hasStore) {
     const ok = await ask({ title: '改为开局商店', html: '<p>开局商店需要一份开局商店目录：会新建数据 artifact“' + esc(S.pf.form.name || '开局商店') + '.store.json”，里面是空的装备、道具、技能目录，在“编辑内容”里补充商品。</p><p class="muted small">商品字段见编写教程“开局商店”。</p>', buttons: [{ label: '取消', value: null }, { label: '添加开局商店目录', value: 'ok', primary: true }] });
-    if (ok !== 'ok') return;
+    if (ok !== 'ok') { restoreCat(); return; }
     if (S.pf.dirty) await savePf();
     busy(true);
     try {
@@ -827,7 +863,7 @@ async function exampleFlow() {
 async function newProjectFlow() {
   const r = await form({ title: '新建项目', intro: '会新建一个项目文件夹，里面有一份带一条常驻条目的世界书。之后可以在这里直接编辑，并打包成 .rwpack。', fields: [
     { key: 'name', label: '项目名称', value: '', placeholder: '例如：我的新扩展', autofocus: true },
-    { key: 'category', label: '分类', type: 'seg', value: 'extension', options: [['extension', '扩展'], ['character', '角色'], ['store_catalog', '开局商店']], hint: '开局商店会带一份空的开局商店目录（数据 artifact），在“编辑内容”里补充商品。' },
+    { key: 'category', label: '分类', type: 'seg', value: 'extension', options: [['extension', '扩展'], ['character', '角色'], ['store_catalog', '开局商店'], ['scenario', '副本']], hint: '开局商店会带一份空的开局商店目录，在“编辑内容”里补充商品；副本会带一份副本数据，用副本编辑器填写世界与章节，保存时生成副本世界书。' },
     { key: 'dir', label: '放在', type: 'folder', value: S.env.lastDir || S.app.documents || '' },
   ], okLabel: '新建', pickFolder: async cur => (await pick('folder', { title: '选择放项目文件夹的位置', defaultPath: cur }))[0], validate: v => (!v.name.trim() ? '请填写项目名称' : v.name.trim().length > LIM.name ? `项目名称不能超过 ${LIM.name} 个字` : !v.dir.trim() ? '请选择位置' : null) });
   if (r) runAction('new', null, { name: r.name.trim(), category: r.category, dir: r.dir.trim() });

@@ -1,4 +1,4 @@
-// 创意工坊的发布规则：分类（扩展 / 角色 / 开局商店）与服务器的各项限制。
+// 创意工坊的发布规则：分类（扩展 / 角色 / 开局商店 / 副本）与服务器的各项限制。
 // 数值与轮回战场创意工坊服务器（cloudflare/src/projects）一致；离线包导入不受这些限制，但发布或更新工坊作品时会被拒绝。
 
 export const LIMITS = {
@@ -8,6 +8,8 @@ export const LIMITS = {
   coverBytes: 3 * 1024 * 1024,
 };
 export const COVER_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+import { findScenario, scenarioProblems, scenarioBookState } from './scenario.mjs';
+
 const CHARACTER_KINDS = ['world_character', 'opening_character', 'opening_partner', 'heretic'];
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const len = s => String(s ?? '').trim().length;
@@ -23,7 +25,7 @@ export function normTags(tags) {
 }
 
 // 数据 artifact 里声明的 kind（world_character、store_catalog……）
-function dataKinds(pack) {
+export function dataKinds(pack) {
   const kinds = [];
   for (const a of pack?.bundle?.artifacts || []) {
     if (a?.kind !== 'data') continue;
@@ -40,10 +42,11 @@ export function contentKind(pack) {
     const ck = kinds.filter(k => CHARACTER_KINDS.includes(k));
     return { kind: ck[0] || 'world_character', mixed: ck.length > 1 ? ck : null };
   }
-  return { kind: kinds.includes('store_catalog') ? 'store_catalog' : 'extension', mixed: null };
+  // 扩展：带副本数据是副本（优先），带开局商店目录是开局商店
+  return { kind: kinds.includes('scenario') ? 'scenario' : kinds.includes('store_catalog') ? 'store_catalog' : 'extension', mixed: null };
 }
-// 界面上的三种分类：扩展 / 角色 / 开局商店
-export const displayCategory = (category, kind) => (category === 'character' ? 'character' : kind === 'store_catalog' ? 'store_catalog' : 'extension');
+// 界面上的四种分类：扩展 / 角色 / 开局商店 / 副本
+export const displayCategory = (category, kind) => (category === 'character' ? 'character' : kind === 'scenario' ? 'scenario' : kind === 'store_catalog' ? 'store_catalog' : 'extension');
 
 // 开局商店目录的空模板（与官方客户端生成的一致）
 export function storeCatalogTemplate() {
@@ -90,6 +93,15 @@ export function publishIssues(pack, { cover = undefined } = {}) {
   const ck = contentKind(pack);
   if (ck.mixed) out.push(`角色作品同时包含多种角色用途（${ck.mixed.join('、')}），工坊不接受，一个作品只能选一种`);
   const arts = pack?.bundle?.artifacts || [];
+  // 副本：数据要能通过工坊副本编辑器的检查，世界书要与数据一致
+  const sc = findScenario(arts);
+  if (sc) {
+    const tag = `“${arts[sc.a].name}”`;
+    for (const x of scenarioProblems(sc.data)) out.push(`${tag}副本：${x}`);
+    const book = scenarioBookState(arts);
+    if (book?.state === 'missing') out.push(`${tag}副本还没有生成世界书：在副本编辑器里保存一次即可`);
+    if (book?.state === 'stale') out.push(`“${arts[book.w].name}”副本世界书与副本数据不一致：在副本编辑器里保存一次即可重新生成`);
+  }
   for (const a of arts) {
     if (!a) continue;
     if (len(a.name) > LIMITS.artifactName) out.push(`“${a.name}”名称 ${len(a.name)} 个字，超过工坊上限 ${LIMITS.artifactName} 个字`);

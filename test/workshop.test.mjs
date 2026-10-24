@@ -16,7 +16,7 @@ core.init({ dataDir: path.join(tmp, 'data'), rwkitCandidates: () => [{ file: pat
 // ---------- 假服务器 ----------
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201a5f1b2a90000000049454e44ae426082', 'hex');
 const sha = s => crypto.createHash('sha256').update(s).digest('hex');
-const srv = { calls: [], exchangeTries: 0, token: 'tok-' + crypto.randomBytes(8).toString('hex'), projects: new Map(), uploads: [], patches: [], submits: [], meStatus: 200 };
+const srv = { mine: [], calls: [], exchangeTries: 0, token: 'tok-' + crypto.randomBytes(8).toString('hex'), projects: new Map(), uploads: [], patches: [], submits: [], meStatus: 200 };
 const textOf = a => (a.format === 'text' ? a.content : JSON.stringify(a.content));
 function manifestOf(p, bundle, version) {
   const artifacts = bundle.artifacts.map(a => ({ kind: a.kind, format: a.format, name: a.name, ...(a.kind === 'script' ? { scope: a.scope || 'character' } : {}), byte_size: Buffer.byteLength(textOf(a)), sha256: sha(textOf(a)) }));
@@ -33,7 +33,7 @@ async function fakeFetch(url, init = {}) {
   if (u.pathname === '/api/auth/me') return authed() && srv.meStatus === 200 ? json({ user: { id: 1, discord_id: '42', username: 'tester', display_name: '测试作者', avatar: null } }) : json({ error: '登录状态已失效', code: 'unauthorized' }, 401);
   if (u.pathname === '/api/projects' && u.searchParams.get('query') === 'html') return new Response('<html>portal</html>', { status: 200, headers: { 'content-type': 'text/html' } });
   if (u.pathname === '/api/projects') return json({ items: [{ id: 'x', name: '<b>名</b>', version: '7<img>', downloads_count: '12', tags: ['a'] }], next_offset: null });
-  if (u.pathname === '/api/my/projects') return authed() && srv.meStatus === 200 ? json({ items: [] }) : json({ error: '登录状态已失效', code: 'unauthorized' }, 401);
+  if (u.pathname === '/api/my/projects') return authed() && srv.meStatus === 200 ? json({ items: srv.mine }) : json({ error: '登录状态已失效', code: 'unauthorized' }, 401);
   if ((m = /^\/api\/projects\/([^/]+)(?:\/([a-z-]+))?$/.exec(u.pathname))) {
     const [, id, sub] = m, p = srv.projects.get(id);
     if (!p) return json({ error: '已发布作品不存在', code: 'project_not_found' }, 404);
@@ -48,9 +48,10 @@ async function fakeFetch(url, init = {}) {
   }
   return json({ error: '接口不存在', code: 'not_found' }, 404);
 }
+const events = [], notes = [];
 const enc = s => Buffer.from(s).toString('base64').split('').reverse().join('');
 const dec = s => Buffer.from(s.split('').reverse().join(''), 'base64').toString();
-ws.init({ dataDir: path.join(tmp, 'data'), defaultDownloads: tmp, cacheDir: path.join(tmp, 'covers'), thumb: (c, w) => ({ type: 'image/jpeg', buf: Buffer.from('thumb' + w) }), appVersion: 'test', fetch: fakeFetch, encrypt: enc, decrypt: dec, emit: () => {}, log: () => {} });
+ws.init({ dataDir: path.join(tmp, 'data'), defaultDownloads: tmp, cacheDir: path.join(tmp, 'covers'), thumb: (c, w) => ({ type: 'image/jpeg', buf: Buffer.from('thumb' + w) }), appVersion: 'test', fetch: fakeFetch, encrypt: enc, decrypt: dec, emit: (type, d) => events.push([type, d]), notify: n => notes.push(n), log: () => {} });
 const ok = async (route, body) => { const r = await ws.handle(route, body); if (r && r.ok === false) throw new Error(route + '：' + r.error); return r; };
 
 let samplePack;
@@ -119,6 +120,61 @@ test('上传新版本：发送本地内容与更新说明，按需同步资料�
   assert.deepEqual(srv.submits, ['mine-1']);
   assert.equal(ws.state().links[pack.project.id], 'mine-1', '上传后记住本地项目与工坊作品的关联');
 });
+
+test('上传后本地版本号与工坊一致：离线包另存为 -vN，项目文件夹改 project.json', async () => {
+  // 上一个测试把示例离线包上传成了工坊的 v2：另存了 -v2 的离线包，原文件不动
+  const before = JSON.parse(fs.readFileSync(samplePack, 'utf8')).project.version;
+  srv.projects.get('mine-1').version = 6; srv.projects.get('mine-1').published = true;
+  const r = await ok('ws.upload', { id: 'mine-1', path: samplePack, changelog: '' });
+  assert.equal(r.version, 7);
+  assert.equal(r.synced.kind, 'pack');
+  assert.equal(r.synced.to, 7);
+  assert.match(path.basename(r.synced.target), /-v7\.rwpack$/);
+  const copy = JSON.parse(fs.readFileSync(r.synced.target, 'utf8'));
+  assert.equal(copy.project.version, 7);
+  core.rwkitModule().verifyManifest(copy);
+  assert.equal(JSON.parse(fs.readFileSync(samplePack, 'utf8')).project.version, before, '原离线包不变');
+  // 再上传同样的内容到 v7 已存在的名字上：内容不同（版本号不同）时另起名字
+  srv.projects.get('mine-1').version = 6;
+  const again = await ok('ws.upload', { id: 'mine-1', path: samplePack, changelog: '' });
+  assert.ok(again.synced.same || /工坊v7\.rwpack$/.test(again.synced.target));
+  // 项目文件夹：直接改 project.json
+  const made = await core.handle('action', { action: 'new', opts: { name: '文件夹作品', category: 'extension', dir: tmp } });
+  assert.equal(made.ok, true, made.error);
+  const dir = made.result.dir;
+  srv.projects.set('mine-2', { name: '文件夹作品', summary: '', tags: [], category: 'extension', version: 3, bundle: srv.projects.get('remote-1').bundle, published: true });
+  const f = await ok('ws.upload', { id: 'mine-2', path: dir, changelog: '' });
+  assert.deepEqual({ kind: f.synced.kind, from: f.synced.from, to: f.synced.to }, { kind: 'folder', from: 1, to: 4 });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'project.json'), 'utf8')).project.version, 4);
+  const local = await ok('ws.local', { path: dir, id: 'mine-2' });
+  assert.equal(local.nextVersion, 5);
+  assert.equal(local.localVersion, 4);
+  // 版本号一致时不改
+  assert.equal(await ws.syncVersion(dir, 4, 4), null);
+});
+
+test('审核结果：提交后记住“审核中”，状态变化时发出事件与系统通知', async () => {
+  events.length = 0; notes.length = 0;
+  srv.mine = [{ id: 'mine-1', name: '我的作品', status: 'pending', latest_version: 7, published_version: 6, review_note: '' }, { id: 'mine-2', name: '文件夹作品', status: 'published', latest_version: 4, published_version: 4 }];
+  await ok('ws.mine');
+  assert.equal(events.filter(e => e[1]?.type === 'review').length, 0, '第一次只记录');
+  srv.mine[0] = { ...srv.mine[0], status: 'rejected', review_note: '缺少作品说明' };
+  srv.mine[1] = { ...srv.mine[1], status: 'archived', archive_note: '违规' };
+  await ok('ws.mine');
+  const got = events.filter(e => e[0] === 'workshop' && e[1]?.type === 'review').map(e => [e[1].id, e[1].status, e[1].note]);
+  assert.deepEqual(got, [['mine-1', 'rejected', '缺少作品说明'], ['mine-2', 'archived', '违规']]);
+  assert.match(notes[0].body, /我的作品.*v7 被退回：缺少作品说明/);
+  assert.equal(notes[1].title, '作品被下架');
+  // 同样的状态不再重复通知；提交审核后再次通过
+  await ok('ws.mine');
+  assert.equal(events.filter(e => e[1]?.type === 'review').length, 2);
+  await ok('ws.submit', { id: 'mine-1' });
+  srv.mine[0] = { ...srv.mine[0], status: 'published', published_version: 7 };
+  await ok('ws.mine');
+  assert.equal(events.filter(e => e[1]?.type === 'review').at(-1)[1].status, 'published');
+  assert.match(ws.reviewText({ name: 'A', status: 'published', version: 3 }).body, /“A” v3 已在创意工坊公开/);
+});
+
 
 test('上传：有未保存的草稿时拒绝', async () => {
   await core.handle('edit', { path: samplePack, op: { op: 'project', fields: { summary: '改了一下' } } });

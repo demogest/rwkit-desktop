@@ -27,7 +27,7 @@ const finish = responses => responses
 http.createServer(async (req, res) => {
   let raw = '';
   for await (const c of req) raw += c;
-  if (req.url.endsWith('/models')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ data: [{ id: 'mock-fast' }, { id: 'mock-1' }, { id: 'text-embedding-mock' }] })); return; }
+  if (req.url.endsWith('/models')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ data: [{ id: 'mock-fast' }, { id: 'mock-1' }, { id: 'text-embedding-mock' }, ...Array.from({ length: 240 }, (_, i) => ({ id: 'vendor/model-' + String(i).padStart(3, '0') }))] })); return; }
   const responses = req.url.endsWith('/responses');
   if (!responses && !req.url.endsWith('/chat/completions')) { res.writeHead(404); res.end('{}'); return; }
   if (req.headers.authorization !== 'Bearer test-key') { res.writeHead(401, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'bad key' } })); return; }

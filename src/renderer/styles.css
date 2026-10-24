@@ -510,7 +510,7 @@ pre.code { margin: 8px 0 0; padding: 10px 12px; border-radius: 9px; background: 
 .set-sec { padding: 14px 0; border-bottom: 1px solid var(--border); }
 .set-sec:last-child { border-bottom: 0; }
 iframe.preview { flex: 1; width: 100%; border: 1px solid var(--border); border-radius: 10px; background: #fff; min-height: 300px; }
-.menu { position: fixed; z-index: 150; min-width: 200px; background: var(--panel); border: 1px solid var(--border); border-radius: 11px; box-shadow: var(--shadow-lg); padding: 5px; animation: rise .12s ease-out; }
+.menu { position: fixed; z-index: 150; min-width: 200px; max-height: calc(100vh - 16px); overflow-y: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 11px; box-shadow: var(--shadow-lg); padding: 5px; animation: rise .12s ease-out; }
 .menu-i { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px; background: transparent; cursor: pointer; font-size: 13px; text-align: left; color: var(--text); }
 .menu-i:hover:not(:disabled) { background: var(--hover); }
 .menu-i:disabled { opacity: .4; cursor: not-allowed; }
@@ -835,3 +835,27 @@ input.input + .cnt { bottom: 50%; transform: translateY(50%); }
 .ai-prompts .row { align-items: center; }
 .ai-prompts textarea { resize: vertical; font-size: 12.5px; line-height: 1.55; }
 .ai-vars code { font-size: 11.5px; padding: 1px 5px; border-radius: 4px; background: var(--sunken); color: var(--text); }
+
+/* 模型下拉框 */
+.ai-models { padding: 4px; overscroll-behavior: contain; }
+.ai-models .menu-i { padding: 5px 9px; font: 12.5px/1.4 var(--mono, ui-monospace, monospace); }
+.ai-models .menu-i .mt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.ai-models .menu-i.act { background: var(--hover); }
+.ai-models .menu-i.checked { color: var(--accent); font-weight: 600; }
+
+/* 副本编辑器 */
+.sc-intro { margin-bottom: 4px; }
+.sc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; }
+@media (max-width: 1100px) { .sc-grid { grid-template-columns: 1fr; } }
+.sc-cal { margin-top: 6px; }
+.sc-cal > summary { cursor: pointer; color: var(--text2); font-size: 13px; margin-bottom: 6px; }
+.sc-story { font-size: 13px; color: var(--text2); background: var(--sunken); border-radius: 8px; padding: 8px 10px; margin: 6px 0 10px; }
+.sc-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+.sc-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-left: 3px solid #2ea043; border-radius: 9px; background: var(--panel); }
+.sc-card.ch { border-left-color: #2f6ad0; }
+.sc-card-h { display: flex; align-items: center; gap: 8px; }
+.sc-card-h select { width: auto; height: 28px; }
+.sc-card textarea { resize: vertical; }
+.sc-badge { font-size: 11.5px; font-weight: 650; padding: 1px 8px; border-radius: 99px; white-space: nowrap; }
+.sc-badge.blue { color: #2f6ad0; background: color-mix(in srgb, #2f6ad0 12%, transparent); }
+.sc-badge.green { color: #1f8a3a; background: color-mix(in srgb, #2ea043 14%, transparent); }

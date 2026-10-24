@@ -257,6 +257,54 @@ export async function aiReviewFlow(path, a) {
   aiAssist({ field: a != null ? '作品中的一个 artifact' : '整个作品', text: r.text, project: r.project, action: 'review' });
 }
 
+// ---------- 模型下拉框：自己画（系统的 datalist 列表很长时不能滚动） ----------
+let modelPop = null;
+function closeModels() { if (modelPop) { modelPop.el.remove(); modelPop.off(); modelPop = null; } }
+function openModels(input, models, onPick) {
+  closeModels();
+  if (!models.length) return;
+  const el = document.createElement('div');
+  el.className = 'menu ai-models';
+  document.body.appendChild(el);
+  let act = -1, typed = false, shown = [];
+  const place = () => {
+    const r = input.getBoundingClientRect(), below = innerHeight - r.bottom - 12, above = r.top - 12;
+    const up = below < Math.min(320, el.scrollHeight) && above > below;
+    el.style.maxHeight = Math.max(120, Math.min(320, up ? above : below)) + 'px';
+    el.style.width = Math.max(r.width, 260) + 'px';
+    el.style.left = Math.min(r.left, innerWidth - Math.max(r.width, 260) - 8) + 'px';
+    el.style.top = (up ? r.top - 4 - el.offsetHeight : r.bottom + 4) + 'px';
+  };
+  const draw = () => {
+    const f = typed ? input.value.trim().toLowerCase() : '';
+    const all = f ? models.filter(m => m.toLowerCase().includes(f)) : models;
+    shown = all.slice(0, 800);
+    el.innerHTML = shown.length
+      ? shown.map((m, i) => `<button type="button" class="menu-i ai-model${m === input.value ? ' checked' : ''}${i === act ? ' act' : ''}" data-i="${i}"><span class="mt">${esc(m)}</span></button>`).join('') + (all.length > shown.length ? `<div class="menu-h">还有 ${all.length - shown.length} 个，输入文字筛选</div>` : '')
+      : '<div class="menu-h">没有匹配的模型</div>';
+    place();
+    (el.querySelector('.act') || (typed ? null : el.querySelector('.checked')))?.scrollIntoView({ block: 'nearest' });
+  };
+  const pick = i => { const m = shown[i]; if (m == null) return; closeModels(); onPick(m); };
+  const onInput = () => { typed = true; act = -1; draw(); };
+  const onKey = e => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); act = Math.max(0, Math.min(shown.length - 1, act + (e.key === 'ArrowDown' ? 1 : -1))); draw(); }
+    else if (e.key === 'Enter' && act >= 0) { e.preventDefault(); e.stopPropagation(); pick(act); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeModels(); }
+  };
+  const onBlur = () => setTimeout(() => { if (modelPop?.el === el && document.activeElement !== input) closeModels(); }, 0);
+  const onScroll = e => { if (!el.contains(e.target)) place(); };
+  el.addEventListener('mousedown', e => e.preventDefault());
+  el.addEventListener('click', e => { const b = e.target.closest('[data-i]'); if (b) pick(Number(b.dataset.i)); });
+  input.addEventListener('input', onInput);
+  input.addEventListener('keydown', onKey, true);
+  input.addEventListener('blur', onBlur);
+  document.addEventListener('scroll', onScroll, true);
+  window.addEventListener('resize', closeModels);
+  modelPop = { el, input, off: () => { input.removeEventListener('input', onInput); input.removeEventListener('keydown', onKey, true); input.removeEventListener('blur', onBlur); document.removeEventListener('scroll', onScroll, true); window.removeEventListener('resize', closeModels); } };
+  draw();
+}
+
 // ---------- 设置：接口与提示词 ----------
 const isClaude5 = model => /^claude-(opus|sonnet|haiku|fable|mythos)-[5-9]/.test(model || '');
 const FALLBACK = ['claude-fable-5-1', 'claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5'];
@@ -274,7 +322,14 @@ export function aiSettingsFlow(tab = 'api') {
     const V = { tab, work: null, key: '', clearKey: false, models: [], prompt: st().actions[0].id, busy: '', err: '' };
     const pick = id => { const p = st().profiles.find(x => x.id === id); V.work = p ? { ...p } : null; V.key = ''; V.clearKey = false; V.models = []; V.err = ''; };
     pick(st().active || st().profiles[0]?.id);
-    const m = modal({ cls: 'wide ai-set', title: `${icon('sparkles')}<span>AI 帮写设置</span>`, body: '<div data-as="body"></div>', foot: '<div class="spacer"></div><button class="btn primary" data-m="close">完成</button>', onClose: () => res() });
+    const m = modal({ cls: 'wide ai-set', title: `${icon('sparkles')}<span>AI 帮写设置</span>`, body: '<div data-as="body"></div>', foot: '<div class="spacer"></div><button class="btn primary" data-m="close">完成</button>', onClose: () => { closeModels(); res(); } });
+    const showModels = () => {
+      const input = $('[data-pf="model"]', body);
+      if (!input || !V.models.length) return;
+      openModels(input, V.models, id => { V.work.model = id; paint(); V.picked = true; $('[data-pf="model"]', body)?.focus(); });
+    };
+    m.el.addEventListener('focusin', e => { if (e.target.dataset.pf !== 'model') return; if (V.picked) { V.picked = false; return; } if (modelPop?.input !== e.target) showModels(); });
+    m.el.addEventListener('mousedown', e => { if (e.target.dataset.pf === 'model' && !modelPop) setTimeout(showModels, 0); });
     const body = $('[data-as="body"]', m.el);
 
     const apiTab = () => {
@@ -290,8 +345,8 @@ export function aiSettingsFlow(tab = 'api') {
           <label class="flabel">类型</label><div class="fval"><select class="input" data-pf="type">${Object.entries(st().providers).map(([k, v]) => `<option value="${k}" ${p.type === k ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select></div>
           <label class="flabel">接口地址</label><div class="fval"><input class="input mono" data-pf="base" value="${esc(p.base)}" spellcheck="false"><div class="fhint">${BASE_HINT[p.type] || ''}</div></div>
           <label class="flabel">API key</label><div class="fval"><input class="input mono" type="password" data-pf="key" autocomplete="off" spellcheck="false" placeholder="${p.hasKey ? '已保存（留空表示不修改）' : p.type === 'compat' ? '粘贴 API key（本机的 Ollama 等可以不填）' : '粘贴 API key'}">${p.hasKey ? `<label class="chk small"><input type="checkbox" data-pf="clearKey" ${V.clearKey ? 'checked' : ''}>清除已保存的 key</label>` : ''}<div class="fhint">用系统加密保存在本机，只发送到上面的接口地址。</div></div>
-          <label class="flabel">模型</label><div class="fval"><div class="row-input"><input class="input mono" data-pf="model" value="${esc(p.model)}" list="ai-models" spellcheck="false" placeholder="${p.type === 'anthropic' ? 'claude-opus-5-5' : '模型名称，可以点右边获取'}"><button class="btn" data-as="models" ${V.busy ? 'disabled' : ''}>${V.busy === 'models' ? '<span class="spin sm"></span>' : icon('list')}获取模型列表</button></div>
-            <datalist id="ai-models">${V.models.map(x => `<option value="${esc(x)}">`).join('')}</datalist>${V.models.length ? `<div class="fhint">已获取 ${V.models.length} 个模型，点输入框可以选择。</div>` : ''}</div>
+          <label class="flabel">模型</label><div class="fval"><div class="row-input"><input class="input mono" data-pf="model" value="${esc(p.model)}" spellcheck="false" autocomplete="off" placeholder="${p.type === 'anthropic' ? 'claude-opus-5-5' : '模型名称，可以点右边获取'}"><button class="btn" data-as="models" ${V.busy ? 'disabled' : ''}>${V.busy === 'models' ? '<span class="spin sm"></span>' : icon('list')}获取模型列表</button></div>
+            ${V.models.length ? `<div class="fhint">已获取 ${V.models.length} 个模型：点输入框打开列表，输入文字筛选。</div>` : ''}</div>
           <label class="flabel">最大输出</label><div class="fval"><input class="input num" data-pf="maxTokens" value="${esc(p.maxTokens ?? '')}" placeholder="${p.type === 'anthropic' ? '64000' : '默认'}"> <span class="muted small">tokens，留空用默认值</span></div>
           ${st().efforts?.[p.type] ? `<label class="flabel">思考深度</label><div class="fval"><select class="input" data-pf="effort"><option value="">默认（由模型决定）</option>${st().efforts[p.type].map(v => `<option value="${v}" ${p.effort === v ? 'selected' : ''}>${v}${EFFORT_NOTE[v] ? '：' + EFFORT_NOTE[v] : ''}</option>`).join('')}</select><div class="fhint">${p.type === 'anthropic' ? (isClaude5(p.model) ? '对应 output_config.effort。' : '只对 Claude 5 系列模型生效。') + 'Claude 不使用温度设置。' : '对应 reasoning.effort，只对推理模型生效；不支持推理的模型请保持默认。'}</div></div>` : ''}
           ${p.type !== 'anthropic' ? `<label class="flabel">温度</label><div class="fval"><input class="input num" data-pf="temperature" value="${esc(p.temperature ?? '')}" placeholder="默认"> <span class="muted small">0–2，留空用接口默认值${p.type === 'openai' ? '；推理模型不支持温度，请留空' : ''}</span></div>` : ''}
@@ -319,6 +374,7 @@ export function aiSettingsFlow(tab = 'api') {
       </div>`;
     };
     const paint = () => {
+      closeModels();
       body.innerHTML = `<div class="ai-tabs"><button class="tab${V.tab === 'api' ? ' on' : ''}" data-as="tab" data-v="api">${icon('globe', 'xs')}接口</button><button class="tab${V.tab === 'prompts' ? ' on' : ''}" data-as="tab" data-v="prompts">${icon('pencil', 'xs')}提示词</button></div>${V.tab === 'api' ? apiTab() : promptTab()}`;
       const k = $('[data-pf="key"]', body); if (k) k.value = V.key;
     };
@@ -353,6 +409,7 @@ export function aiSettingsFlow(tab = 'api') {
         if (r.ok === false) V.err = '获取模型列表失败：' + r.error;
         else { V.models = r.models; toast(`获取到 ${r.models.length} 个模型`, 'ok', 1600); }
         paint();
+        if (r.ok !== false) { V.picked = true; $('[data-pf="model"]', body)?.focus(); V.picked = false; showModels(); }
       }
       if (k === 'save') {
         const r = await api('ai.saveProfile', { profile: { ...p, id: p.id || undefined }, key: V.key, clearKey: V.clearKey });

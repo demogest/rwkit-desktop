@@ -1,13 +1,13 @@
 // 创意工坊页：Discord 登录、发现与下载、我的作品、发布与上传新版本
-import { $, $$, esc, samePath, debounce, fmtSize, fmtTime, hue, icon, toast, copyText, modal, ask, menu, counter, catLabel } from './util.js';
+import { $, $$, esc, samePath, baseName, debounce, fmtSize, fmtTime, hue, icon, toast, copyText, modal, ask, menu, counter, catLabel } from './util.js';
 import { installFlow } from './tavern.js';
 import { aiIn } from './ai.js';
 
-const KIND_LABEL = { extension: '扩展', store_catalog: '开局商店', world_character: '世界书角色', opening_character: '开局角色', opening_partner: '开局伙伴', heretic: '异端' };
+const KIND_LABEL = { extension: '扩展', store_catalog: '开局商店', scenario: '副本', world_character: '世界书角色', opening_character: '开局角色', opening_partner: '开局伙伴', heretic: '异端' };
 const CAT_LABEL = { extension: '扩展', character: '角色' };
-// 工坊的三种分类：扩展 / 角色 / 开局商店（开局商店在服务器上是 extension + kind=store_catalog）；只有角色再分用途
-const KINDS_OF = { '': [], extension: [], store_catalog: [], character: ['world_character', 'opening_character', 'opening_partner', 'heretic'] };
-const CATS = [['', '全部'], ['extension', '扩展'], ['character', '角色'], ['store_catalog', '开局商店']];
+// 工坊的四种分类：扩展 / 角色 / 开局商店 / 副本（开局商店与副本在服务器上是 extension + kind=store_catalog / scenario）；只有角色再分用途
+const KINDS_OF = { '': [], extension: [], store_catalog: [], scenario: [], character: ['world_character', 'opening_character', 'opening_partner', 'heretic'] };
+const CATS = [['', '全部'], ['extension', '扩展'], ['character', '角色'], ['store_catalog', '开局商店'], ['scenario', '副本']];
 // 与创意工坊服务器相同的上限
 const LIMIT = { name: 80, summary: 2000, changelog: 2000, tags: 12, tag: 24 };
 const normTags = list => [...new Set(list.map(t => String(t).normalize('NFKC').trim().toLocaleLowerCase()).filter(Boolean))];
@@ -21,10 +21,21 @@ function metaProblems(meta) {
   return long ? `标签「${long}」超过 ${LIMIT.tag} 个字` : '';
 }
 const catSeg = cur => `<div class="seg" data-m-seg="category">${CATS.slice(1).map(([v, t]) => `<button type="button" data-v="${v}" class="${cur === v ? 'on' : ''}">${t}</button>`).join('')}</div>`;
-function catHint(cat, kind) {
-  if (cat === 'character') return `角色用途：<b>${esc(KIND_LABEL[kind] || KIND_LABEL.world_character)}</b>（由内容里的数据决定）。首次发布后不能再修改分类。`;
-  if (cat === 'store_catalog') return kind === 'store_catalog' ? '项目里有开局商店目录。首次发布后不能再修改分类。' : '<span class="warn-text">项目里还没有开局商店目录：可以在项目概览的“分类”里添加。</span>';
-  return kind === 'store_catalog' ? '<span class="warn-text">项目里有开局商店目录，工坊会归为“开局商店”。</span>' : '通用扩展。首次发布后不能再修改分类。';
+// 分类说明：与工坊的规则一致——扩展里有开局商店目录就是“开局商店”；角色作品的用途由数据决定，开局商店目录不影响分类
+// 选的分类与内容是否相符：扩展里的类型由内容决定，副本数据优先于开局商店目录（角色不受影响）
+function catProblem(cat, L) {
+  if (cat === 'character') return '';
+  if (cat === 'scenario') return L.hasScenario ? '' : '选择“副本”需要项目里有副本数据：可以在项目概览的“分类”里添加';
+  if (L.hasScenario) return '项目里有副本数据，工坊会归为“副本”，请选择“副本”';
+  if (cat === 'store_catalog') return L.hasStore ? '' : '选择“开局商店”需要项目里有开局商店目录：可以在项目概览的“分类”里添加';
+  return L.hasStore ? '项目里有开局商店目录，工坊会归为“开局商店”，请选择“开局商店”' : '';
+}
+function catHint(cat, L) {
+  if (cat === 'character') return `角色用途：<b>${esc(KIND_LABEL[L.charKind] || KIND_LABEL.world_character)}</b>（由内容里的数据决定）。首次发布后不能再修改分类。${L.hasStore ? '<br><span class="warn-text">项目里还有开局商店目录：工坊按“角色”显示这个作品，但安装时商店目录仍会生效。不需要的话先在“编辑内容”里删除那份数据。</span>' : ''}`;
+  if (cat === 'scenario') return L.hasScenario ? '项目里有副本数据。首次发布后不能再修改分类。' : '<span class="warn-text">项目里还没有副本数据：可以在项目概览的“分类”里添加。</span>';
+  if (L.hasScenario) return '<span class="warn-text">项目里有副本数据，工坊会归为“副本”，不能作为' + (cat === 'store_catalog' ? '开局商店' : '通用扩展') + '发布：请选择“副本”，或先删除那份数据。</span>';
+  if (cat === 'store_catalog') return L.hasStore ? '项目里有开局商店目录。首次发布后不能再修改分类。' : '<span class="warn-text">项目里还没有开局商店目录：可以在项目概览的“分类”里添加。</span>';
+  return L.hasStore ? '<span class="warn-text">项目里有开局商店目录，工坊会归为“开局商店”，不能作为通用扩展发布：请选择“开局商店”，或先删除那份数据。</span>' : '通用扩展。首次发布后不能再修改分类。';
 }
 const issuesBanner = (list, title) => (list?.length ? `<div class="banner error" style="margin-bottom:10px">${icon('xCircle')}<div class="bb"><div class="bt">${esc(title)}（创意工坊的限制）</div><div class="bs">${list.map(x => '· ' + esc(x)).join('<br>')}</div></div></div>` : '');
 const SORTS = [['latest', '最新'], ['popular', '热门'], ['downloads', '下载最多'], ['likes', '点赞最多'], ['favorites', '收藏最多']];
@@ -70,7 +81,19 @@ export async function initWorkshop(ctx) {
   if (user()) loadMine(true);
   checkRemote(true);
 }
+const REVIEW = {
+  published: (r, v) => [`“${r.name}”${v} 审核通过，已在创意工坊公开`, 'ok'],
+  rejected: (r, v) => [`“${r.name}”${v} 审核被退回${r.note ? '：' + r.note : '，可以在“我的作品”里查看原因'}`, 'error'],
+  archived: r => [`“${r.name}”已被管理员下架${r.note ? '：' + r.note : ''}`, 'warn'],
+};
 export function onWorkshopEvent(data) {
+  if (data?.type === 'review') {
+    const [text, kind] = (REVIEW[data.status] || (r => [`“${r.name}”的审核状态变为 ${r.status}`, 'info']))(data, data.version ? ' v' + data.version : '');
+    toast(text, kind, 12000);
+    if (W.mine.items) loadMine(true);
+    return;
+  }
+  if (data?.type === 'open-mine') { X.S.view = 'workshop'; W.tab = 'mine'; W.detail = null; loadMine(true); X.render(); return; }
   if (data?.type === 'auth') {
     if (W.st) W.st.user = data.user;
     if (!data.user) { W.mine.items = null; if (W.tab === 'mine') W.tab = 'discover'; }
@@ -155,7 +178,7 @@ function renderDiscover(b) {
   const kinds = KINDS_OF[W.q.category];
   const bar = `<div class="ws-bar">
     <div class="search">${icon('search')}<input class="input" id="wsq" placeholder="搜索作品名称或简介…" value="${esc(W.q.query)}" spellcheck="false"></div>
-    <div class="seg" data-ws-seg="category">${CATS.map(([v, t]) => `<button type="button" data-v="${v}" class="${(W.q.kind === 'store_catalog' ? 'store_catalog' : W.q.category) === v ? 'on' : ''}">${t}</button>`).join('')}</div>
+    <div class="seg" data-ws-seg="category">${CATS.map(([v, t]) => `<button type="button" data-v="${v}" class="${(W.q.kind === 'store_catalog' || W.q.kind === 'scenario' ? W.q.kind : W.q.category) === v ? 'on' : ''}">${t}</button>`).join('')}</div>
     ${kinds.length ? `<select class="input ws-sel" data-ws-q="kind"><option value="">全部角色</option>${kinds.map(k => `<option value="${k}" ${W.q.kind === k ? 'selected' : ''}>${esc(KIND_LABEL[k])}</option>`).join('')}</select>` : ''}
     ${W.q.tag ? `<span class="tagc on" data-act="ws-untag" title="取消标签筛选">#${esc(W.q.tag)}${icon('x', 'xs')}</span>` : ''}
     <span class="grow"></span>
@@ -494,7 +517,7 @@ export async function publishFlow(localId) {
       ${localSummary(L)}
       <div class="fgrid up-form">
         <label class="flabel">作品名称</label><div class="fval cnt-wrap"><input class="input" data-m-f="name" value="${esc(L.meta.name)}" maxlength="${LIMIT.name}" data-max="${LIMIT.name}">${counter(L.meta.name, LIMIT.name)}</div>
-        <label class="flabel">分类</label><div class="fval">${catSeg(L.display)}<div class="fhint" data-cat-hint>${catHint(L.display, L.kind)}</div></div>
+        <label class="flabel">分类</label><div class="fval">${catSeg(L.display)}<div class="fhint" data-cat-hint>${catHint(L.display, L)}</div></div>
         <label class="flabel">简介</label><div class="fval cnt-wrap"><textarea class="input" rows="4" data-m-f="summary" maxlength="${LIMIT.summary}" data-max="${LIMIT.summary}">${esc(L.meta.summary)}</textarea>${aiIn('创意工坊作品简介（不超过 2000 字）')}${counter(L.meta.summary, LIMIT.summary)}</div>
         <label class="flabel">标签</label><div class="fval"><input class="input" data-m-f="tags" value="${esc(L.meta.tags.join('，'))}" placeholder="用逗号分隔"><div class="fhint">最多 ${LIMIT.tags} 个，每个不超过 ${LIMIT.tag} 个字。</div></div>
         <label class="flabel">更新说明</label><div class="fval cnt-wrap"><textarea class="input" rows="2" data-m-f="changelog" maxlength="${LIMIT.changelog}" data-max="${LIMIT.changelog}" placeholder="可选：这个版本的内容"></textarea>${aiIn('创意工坊更新说明（不超过 2000 字）')}${counter('', LIMIT.changelog)}</div>
@@ -510,11 +533,11 @@ export async function publishFlow(localId) {
   m.el.addEventListener('change', e => { if (e.target.matches('[data-up="src"]')) load(); });
   m.el.addEventListener('click', async e => {
     const s = e.target.closest('[data-m-seg] button');
-    if (s) { $$('button', s.parentElement).forEach(b => b.classList.toggle('on', b === s)); const h = $('[data-cat-hint]', m.el); if (h && L) h.innerHTML = catHint(s.dataset.v, L.kind); return; }
+    if (s) { $$('button', s.parentElement).forEach(b => b.classList.toggle('on', b === s)); const h = $('[data-cat-hint]', m.el); if (h && L) h.innerHTML = catHint(s.dataset.v, L); return; }
     if (!e.target.closest('[data-ok]') || !L) return;
     const f = k => $(`[data-m-f="${k}"]`, m.el).value;
     const meta = { name: f('name').trim(), summary: f('summary'), category: $('[data-m-seg="category"] .on', m.el)?.dataset.v || 'extension', tags: f('tags').split(/[,，、\n]+/).map(t => t.trim()).filter(Boolean) };
-    const bad = metaProblems(meta) || (meta.category === 'store_catalog' && L.kind !== 'store_catalog' ? '选择“开局商店”需要项目里有开局商店目录：可以在项目概览的“分类”里添加' : meta.category === 'extension' && L.kind === 'store_catalog' ? '项目里有开局商店目录，工坊会归为“开局商店”，请选择“开局商店”' : '');
+    const bad = metaProblems(meta) || catProblem(meta.category, L);
     if (bad) { err(bad); return; }
     const opt = { cover: true, submit: $('[data-m-c="submit"]', m.el).checked, changelog: f('changelog') };
     m.foot.querySelectorAll('button').forEach(b => { b.disabled = true; });
@@ -530,12 +553,13 @@ export async function publishFlow(localId) {
       step(0, 'done', '作品 id ' + created.id);
       step(1, 'cur');
       const up = await wsOk('ws.upload', { id: created.id, path, changelog: opt.changelog, cover: opt.cover, submit: opt.submit });
-      step(1, 'done', '已上传为 v' + up.version);
+      step(1, 'done', '已上传为 v' + up.version + (up.synced?.to ? '，' + syncNote(up.synced) : ''));
+      if (up.synced?.error) syncToast(up.synced);
       if (opt.submit) step(2, up.submitted ? 'done' : 'cur', up.submitted ? '等待管理员审核' : '');
       X.busy(false);
       m.foot.innerHTML = `<div class="spacer"></div><button class="btn primary" data-m="close">完成</button>`;
       err('');
-      toast(opt.submit ? '已发布并提交审核' : '已上传为草稿，可在“我的作品”里提交审核', 'ok', 5000);
+      toast(opt.submit ? '已发布并提交审核，审核有结果时会通知你' : '已上传为草稿，可在“我的作品”里提交审核', 'ok', 5000);
       W.st = await api('ws.state'); loadMine(true); X.render();
     } catch (e2) {
       X.busy(false);
@@ -546,6 +570,13 @@ export async function publishFlow(localId) {
     }
   });
   load();
+}
+// 上传后本地版本号与工坊对齐的结果
+const syncNote = s => (s.kind === 'folder' ? `本地版本号已从 v${s.from} 改为 v${s.to}` : s.same ? `本地已有同样的 ${baseName(s.target)}` : `已另存为 ${baseName(s.target)}（与工坊的 v${s.to} 一致）`);
+function syncToast(s) {
+  if (!s) return;
+  if (s.error) toast('上传成功，但没能把本地版本号改成工坊的：' + s.error, 'warn', 8000);
+  else toast(syncNote(s), 'info', 6000);
 }
 export async function uploadFlow(id, localId) {
   if (!(await ensureLogin())) return;
@@ -568,6 +599,7 @@ export async function uploadFlow(id, localId) {
     const blocked = r.status === 'pending' ? '作品正在审核，审核结束前不能上传新版本。' : r.status === 'archived' ? '作品已被管理员下架，不能上传。' : published && !r.has_cover && !L.cover?.ok ? '已发布的作品上传新版本前必须有封面：请先在“我的作品”里上传封面，或给本地项目设置 PNG/JPEG/WebP 封面。' : L.size > L.limit ? '内容超过工坊 4 MB 的上传限制。' : L.issues?.length ? '先改好上面标出的问题（创意工坊的限制）。' : '';
     const other = L.localId !== id && linkOf(L.localId) && linkOf(L.localId) !== id;
     box.innerHTML = `<div class="banner ${published ? 'info' : 'plain'}" style="margin-bottom:10px">${icon(published ? 'zap' : 'info')}<div class="bb"><div class="bt">${published ? `上传后立即发布为 v${next}` : `上传为 v${next}（草稿）`}</div><div class="bs">${published ? '这个作品已通过审核，之后的新版本不需要再次审核，会直接替换公开版本。' : '首次发布需要提交审核，审核通过后才会公开。'}</div></div></div>
+      ${L.localVersion && L.localVersion !== next ? `<div class="fhint" style="margin:-4px 0 10px">${icon('info', 'xs')} 工坊按上传顺序编号，这次是 v${next}（本地是 v${L.localVersion}）。上传后本地版本号会跟着改为 v${next}${/\.rwpack$/i.test(path) ? '：另存为新的离线包 “…-v' + next + '.rwpack”，原文件保留' : '（改项目文件夹里的 project.json）'}。</div>` : ''}
       ${other ? `<div class="banner warn" style="margin-bottom:10px">${icon('alert')}<div class="bb"><div class="bt">这个本地项目关联的是另一个工坊作品</div><div class="bs">继续上传会把关联改到“${esc(mine.name)}”。</div></div></div>` : ''}
       ${issuesBanner(L.issues, '先改好这些地方才能上传')}
       ${localSummary(L)}
@@ -590,7 +622,8 @@ export async function uploadFlow(id, localId) {
     try {
       const r = await wsOk('ws.upload', { id, path, changelog: $('[data-m-f="changelog"]', m.el).value, syncMeta: c('meta'), cover: c('cover'), submit: c('submit') });
       X.busy(false); m.close();
-      toast(r.autoPublished ? `已发布 v${r.version}` : r.submitted ? `已上传 v${r.version} 并提交审核` : `已上传 v${r.version}（草稿）`, 'ok', 5000);
+      toast(r.autoPublished ? `已发布 v${r.version}` : r.submitted ? `已上传 v${r.version} 并提交审核，审核有结果时会通知你` : `已上传 v${r.version}（草稿）`, 'ok', 5000);
+      syncToast(r.synced);
       W.st = await api('ws.state'); loadMine(true); checkRemote(true); X.render();
     } catch (e2) {
       X.busy(false); err(e2.message);
@@ -713,7 +746,7 @@ export function workshopSeg(e) {
   if (!b) return false;
   // 扩展只看通用扩展、开局商店单独一类（与官方客户端的导航一致）
   const v = b.dataset.v;
-  W.q = { ...W.q, category: v === 'store_catalog' ? 'extension' : v, kind: v === 'extension' ? 'extension' : v === 'store_catalog' ? 'store_catalog' : '' }; W.list.key = null; renderBody();
+  W.q = { ...W.q, category: v === 'store_catalog' || v === 'scenario' ? 'extension' : v, kind: v === 'extension' ? 'extension' : v === 'store_catalog' || v === 'scenario' ? v : '' }; W.list.key = null; renderBody();
   return true;
 }
 export const workshopState = () => W;

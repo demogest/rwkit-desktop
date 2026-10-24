@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import * as core from './core.mjs';
-import { publishIssues, contentKind, displayCategory, normTags, LIMITS as WL } from './limits.mjs';
+import { publishIssues, contentKind, displayCategory, dataKinds, normTags, LIMITS as WL } from './limits.mjs';
 
 export const SERVERS = [
   { base: 'https://workshop.6661816.xyz', label: '正式服' },
@@ -13,7 +13,7 @@ export const SERVERS = [
 ];
 const LIMITS = { bundle: 4_000_000, request: 5 * 1024 * 1024, cover: 3 * 1024 * 1024, changelog: 2000, name: 80, summary: 2000, tags: 12, tag: 24, deps: 12 };
 const COVER_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
-const KINDS = ['extension', 'store_catalog', 'world_character', 'opening_character', 'opening_partner', 'heretic'];
+const KINDS = ['extension', 'store_catalog', 'scenario', 'world_character', 'opening_character', 'opening_partner', 'heretic'];
 const SORTS = ['latest', 'popular', 'downloads', 'likes', 'favorites'];
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const clone = v => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
@@ -37,7 +37,7 @@ const env = {
   log: () => {},
   emit: () => {},
 };
-const store = { base: SERVERS[0].base, downloadDir: '', checkUpdates: true, auth: {}, links: {} };
+const store = { base: SERVERS[0].base, downloadDir: '', checkUpdates: true, auth: {}, links: {}, review: {} };
 const file = () => path.join(env.dataDir, 'workshop.json');
 export function init(options) {
   Object.assign(env, options);
@@ -48,7 +48,10 @@ export function init(options) {
     if (typeof s.checkUpdates === 'boolean') store.checkUpdates = s.checkUpdates;
     if (isObj(s.auth)) store.auth = s.auth;
     if (isObj(s.links)) store.links = s.links;
+    if (isObj(s.review)) store.review = s.review;
   } catch {}
+  // 启动后查一次自己作品的审核状态（rwkit 关着的时候可能已经有结果）
+  setTimeout(() => { if (session()) pollReviews(); }, 8000).unref?.();
 }
 function save() {
   try {
@@ -256,6 +259,80 @@ async function downloadOwn({ id, dir, overwrite }) {
   return writeRwpack({ project: { ...e.project, version: e.latest.version }, manifest: null, bundle: e.latest.bundle, cover, dir, overwrite });
 }
 
+// ---------- 版本号：工坊按上传顺序重新编号（最新版本 + 1），上传后让本地与工坊一致 ----------
+// 项目文件夹直接改 project.json；离线包另存为“名称-vN.rwpack”（原文件保留），同名文件已存在且内容不同时加“-工坊”
+export async function syncVersion(p, v, from) {
+  if (!(v > 0) || v === from) return null;
+  if (fs.statSync(p).isDirectory()) {
+    const r = await core.handle('edit', { path: p, op: { op: 'project', fields: { version: v } } });
+    if (r?.ok === false) throw new Error(r.error);
+    return { kind: 'folder', from, to: v };
+  }
+  const R = core.rwkitModule();
+  const s = core.sourcePack(p);
+  const pack = s.pack;
+  pack.project.version = v;
+  pack.exported_at = Date.now();
+  R.rebuildManifest(pack, []);
+  R.verifyManifest(pack);
+  const base = path.basename(p).replace(/(-v\d+)?\.rwpack$/i, '');
+  let target = path.join(path.dirname(p), `${base}-v${v}.rwpack`);
+  if (fs.existsSync(target)) {
+    let same = false;
+    try { const old = JSON.parse(fs.readFileSync(target, 'utf8')); same = JSON.stringify(old.bundle) === JSON.stringify(pack.bundle) && Number(old.project?.version) === v; } catch {}
+    if (same) return { kind: 'pack', from, to: v, target, same: true };
+    target = path.join(path.dirname(p), `${base}-工坊v${v}.rwpack`);
+  }
+  R.writePack(pack, target, { backup: core.getState().settings.backup !== false });
+  core.openPaths([target]);
+  return { kind: 'pack', from, to: v, target };
+}
+
+// ---------- 审核结果：提交审核后定时查看，有结果时通知 ----------
+const REVIEW_EVERY = 2 * 60 * 1000;
+let reviewTimer = null;
+const reviewSeen = () => (store.review[store.base] ||= {});
+// 与上次记录的状态比较：审核中 → 已发布 / 被退回；已发布 → 被下架
+function trackReviews(items) {
+  const seen = reviewSeen();
+  let pending = false, changed = false;
+  for (const p of items) {
+    const prev = seen[p.id], now = { status: p.status, version: Number(p.latest_version) || 0 };
+    if (prev && prev.status !== now.status && (prev.status === 'pending' || now.status === 'archived')) {
+      const result = { type: 'review', id: p.id, name: p.name, status: p.status, version: now.version, note: (p.status === 'archived' ? p.archive_note : p.review_note) || '' };
+      env.emit('workshop', result);
+      env.notify?.(reviewText(result));
+    }
+    if (!prev || prev.status !== now.status || prev.version !== now.version) { seen[p.id] = now; changed = true; }
+    if (p.status === 'pending') pending = true;
+  }
+  for (const id of Object.keys(seen)) if (!items.some(p => p.id === id)) { delete seen[id]; changed = true; }
+  if (changed) save();
+  clearTimeout(reviewTimer);
+  reviewTimer = pending ? setTimeout(pollReviews, REVIEW_EVERY) : null;
+  reviewTimer?.unref?.();
+}
+export function reviewText(r) {
+  const v = r.version ? ' v' + r.version : '';
+  if (r.status === 'published') return { title: '审核通过', body: `“${r.name}”${v} 已在创意工坊公开` };
+  if (r.status === 'rejected') return { title: '审核被退回', body: `“${r.name}”${v} 被退回${r.note ? '：' + r.note : ''}` };
+  if (r.status === 'archived') return { title: '作品被下架', body: `“${r.name}”已被管理员下架${r.note ? '：' + r.note : ''}` };
+  return { title: '审核状态变化', body: `“${r.name}”${v}：${r.status}` };
+}
+async function pollReviews() {
+  clearTimeout(reviewTimer); reviewTimer = null;
+  if (!session()) return;
+  try { trackReviews(numify(await request('/api/my/projects', { auth: true })).items || []); }
+  catch (e) { env.log('查看审核状态失败：' + e.message); reviewTimer = setTimeout(pollReviews, REVIEW_EVERY * 2); reviewTimer.unref?.(); }
+}
+function markSubmitted(id, version) {
+  reviewSeen()[id] = { status: 'pending', version: version || 0 };
+  save();
+  clearTimeout(reviewTimer);
+  reviewTimer = setTimeout(pollReviews, REVIEW_EVERY);
+  reviewTimer.unref?.();
+}
+
 // 上传前从本地项目取出要发布的内容
 function localSource(p) {
   const s = core.sourcePack(p);
@@ -269,7 +346,10 @@ function localSource(p) {
   const ck = contentKind(s.pack);
   // 只算工坊会拒绝的问题，不重复计入一般提示
   const issues = publishIssues(s.pack, { cover: cover ? { type: cover.type, size: cover.buf.length } : null });
-  return { project: s.pack.project, bundle, size, warns: Math.max(0, (s.info?.warns?.length || 0) - issues.length), cover, kind: ck.kind, display: displayCategory(s.pack.project.category, ck.kind), issues };
+  // 与当前分类无关的两件事：有没有开局商店目录、改成角色时是什么用途（发布窗口里切换分类时用）
+  const kinds = dataKinds(s.pack), hasStore = kinds.includes('store_catalog'), hasScenario = kinds.includes('scenario');
+  const charKind = contentKind({ project: { ...s.pack.project, category: 'character' }, bundle: s.pack.bundle }).kind;
+  return { project: s.pack.project, bundle, size, warns: Math.max(0, (s.info?.warns?.length || 0) - issues.length), cover, kind: ck.kind, display: displayCategory(s.pack.project.category, ck.kind), hasStore, hasScenario, charKind, issues };
 }
 // 资料超出工坊上限时说明原因，不悄悄截断
 function checkMeta(m) {
@@ -356,6 +436,7 @@ export async function handle(route, b = {}) {
         return { ok: true, user: publicUser(me.user) };
       }
       case 'ws.logout': {
+        clearTimeout(reviewTimer); reviewTimer = null;
         if (session()) { try { await request('/api/auth/logout', { method: 'POST', auth: true, timeout: 10000 }); } catch {} }
         clearSession(); return state();
       }
@@ -370,7 +451,7 @@ export async function handle(route, b = {}) {
       case 'ws.downloadOwn': return { ok: true, ...(await downloadOwn(b)) };
       case 'ws.engagement': return numify(await request(`/api/projects/${enc(b.id)}/engagement`, { auth: true }));
       case 'ws.engage': return numify(await request(`/api/projects/${enc(b.id)}/engagement`, { method: 'POST', body: { kind: b.kind, enabled: !!b.enabled }, auth: true }));
-      case 'ws.mine': return numify(await request('/api/my/projects', { auth: true }));
+      case 'ws.mine': { const r = numify(await request('/api/my/projects', { auth: true })); trackReviews(r.items || []); return r; }
       case 'ws.editor': {
         const e = await request(`/api/projects/${enc(b.id)}/edit`, { auth: true, timeout: 60000 });
         return { project: e.project, latest: { version: e.latest?.version || 0, changelog: e.latest?.changelog || '', review_status: e.latest?.review_status || 'draft', artifacts: (e.latest?.bundle?.artifacts || []).map(a => ({ kind: a.kind, name: a.name })) } };
@@ -381,14 +462,21 @@ export async function handle(route, b = {}) {
         const meta = metaOf(src.project);
         const out = { meta, kind: src.kind, display: src.display, issues: src.issues, limits: WL, size: src.size, limit: LIMITS.bundle, artifacts: src.bundle.artifacts.length, warns: src.warns, cover: src.cover ? { type: src.cover.type, size: src.cover.buf.length, ok: COVER_TYPES.has(src.cover.type) && src.cover.buf.length <= LIMITS.cover } : null, localId: src.project.id };
         if (b.id) { const e = await request(`/api/projects/${enc(b.id)}/edit`, { auth: true, timeout: 60000 }); out.remote = numify(e.project); out.diff = metaDiff(meta, e.project); }
+        // 工坊按上传顺序编号：这次上传会是 最新版本 + 1（新作品是 1）
+        out.nextVersion = (Number(out.remote?.latest_version) || 0) + 1;
+        out.localVersion = Number(src.project.version) || 0;
         return out;
       }
       case 'ws.create': {
         const src = localSource(path.resolve(b.path));
         // 界面上选的分类：扩展 / 角色 / 开局商店（开局商店要有开局商店目录）
-        const want = isObj(b.meta) && ['extension', 'character', 'store_catalog'].includes(b.meta.category) ? b.meta.category : src.display;
-        if (want === 'store_catalog' && src.kind !== 'store_catalog') fail('选择“开局商店”时，项目里需要有开局商店目录（kind 为 store_catalog 的数据）：可以在项目概览的“分类”里添加');
-        if (want === 'extension' && src.kind === 'store_catalog') fail('项目里有开局商店目录，工坊会把它归为“开局商店”：请选择“开局商店”，或先删除那份数据');
+        // 扩展里的具体类型由内容决定（与服务器相同）：副本数据优先于开局商店目录
+        const want = isObj(b.meta) && ['extension', 'character', 'store_catalog', 'scenario'].includes(b.meta.category) ? b.meta.category : src.display;
+        if (want === 'scenario' && !src.hasScenario) fail('选择“副本”时，项目里需要有副本数据（kind 为 scenario 的数据）：可以在项目概览的“分类”里添加');
+        if (want === 'store_catalog' && src.hasScenario) fail('项目里有副本数据，工坊会把它归为“副本”：请选择“副本”，或先删除副本数据');
+        if (want === 'store_catalog' && !src.hasStore) fail('选择“开局商店”时，项目里需要有开局商店目录（kind 为 store_catalog 的数据）：可以在项目概览的“分类”里添加');
+        if (want === 'extension' && src.hasScenario) fail('项目里有副本数据，工坊会把它归为“副本”：请选择“副本”，或先删除那份数据');
+        if (want === 'extension' && src.hasStore) fail('项目里有开局商店目录，工坊会把它归为“开局商店”：请选择“开局商店”，或先删除那份数据');
         const meta = checkMeta({ ...metaOf(src.project), ...(isObj(b.meta) ? metaOf({ ...src.project, ...b.meta, category: want === 'character' ? 'character' : 'extension' }) : {}) });
         failIssues(src, '发布');
         // 与官方客户端一致：正式作品都必须带封面
@@ -411,8 +499,11 @@ export async function handle(route, b = {}) {
         const r = await request(`/api/projects/${enc(b.id)}/versions`, { method: 'POST', body, headers: { 'Content-Type': 'application/json' }, auth: true, timeout: 120000 });
         setLink(src.project.id, b.id);
         let submitted = false;
-        if (b.submit && !r.auto_published) { await request(`/api/projects/${enc(b.id)}/submit`, { method: 'POST', auth: true }); submitted = true; }
-        return { ok: true, version: Number(r.version) || 0, autoPublished: !!r.auto_published, submitted };
+        if (b.submit && !r.auto_published) { await request(`/api/projects/${enc(b.id)}/submit`, { method: 'POST', auth: true }); submitted = true; markSubmitted(b.id, Number(r.version)); }
+        // 工坊重新编号后，本地版本号跟着改（失败不影响上传结果）
+        let synced = null;
+        try { synced = await syncVersion(path.resolve(b.path), Number(r.version) || 0, Number(src.project.version) || 0); } catch (e) { synced = { error: String(e.message || e) }; }
+        return { ok: true, version: Number(r.version) || 0, autoPublished: !!r.auto_published, submitted, synced };
       }
       case 'ws.update': {
         const fl = isObj(b.fields) ? b.fields : {};
@@ -420,7 +511,7 @@ export async function handle(route, b = {}) {
         return await request(`/api/projects/${enc(b.id)}`, { method: 'PATCH', body: { ...fl, ...(fl.tags ? { tags: normTags(fl.tags) } : {}) }, auth: true });
       }
       case 'ws.cover': return await uploadCoverFrom(b.id, b.file ? imageFile(path.resolve(b.file)) : core.coverOf(path.resolve(b.path)));
-      case 'ws.submit': return await request(`/api/projects/${enc(b.id)}/submit`, { method: 'POST', auth: true });
+      case 'ws.submit': { const r = await request(`/api/projects/${enc(b.id)}/submit`, { method: 'POST', auth: true }); if (!r.auto_published) markSubmitted(b.id, Number(r.version)); return r; }
       case 'ws.visibility': return await request(`/api/projects/${enc(b.id)}/visibility`, { method: 'POST', body: { hidden: !!b.hidden }, auth: true });
       case 'ws.delete': { const r = await request(`/api/projects/${enc(b.id)}`, { method: 'DELETE', auth: true }); for (const m of Object.values(store.links)) for (const [k, v] of Object.entries(m)) if (v === b.id) delete m[k]; save(); return r; }
       case 'ws.link': setLink(String(b.localId || ''), b.remoteId ? String(b.remoteId) : null); return state();

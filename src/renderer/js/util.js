@@ -16,10 +16,10 @@ export const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t);
 
 export const KIND = { worldbook: '世界书', regex: '正则', script: '脚本', preset: '预设', data: '数据' };
 export const KIND_ICON = { worldbook: 'book', regex: 'regex', script: 'fileCode', preset: 'sliders', data: 'database' };
-export const CAT = { extension: '扩展', character: '角色', store_catalog: '开局商店' };
-// 工坊的三种分类（扩展 / 角色 / 开局商店）与角色的用途；开局商店在服务器上属于 extension，由内容里的开局商店目录决定
-export const KIND_LABEL = { extension: '扩展', store_catalog: '开局商店', world_character: '世界书角色', opening_character: '开局角色', opening_partner: '开局伙伴', heretic: '异端' };
-export const displayCat = (category, kind) => (category === 'character' ? 'character' : kind === 'store_catalog' ? 'store_catalog' : 'extension');
+export const CAT = { extension: '扩展', character: '角色', store_catalog: '开局商店', scenario: '副本' };
+// 工坊的四种分类（扩展 / 角色 / 开局商店 / 副本）与角色的用途；开局商店与副本在服务器上属于 extension，由内容里的数据决定（副本优先）
+export const KIND_LABEL = { extension: '扩展', store_catalog: '开局商店', scenario: '副本', world_character: '世界书角色', opening_character: '开局角色', opening_partner: '开局伙伴', heretic: '异端' };
+export const displayCat = (category, kind) => (category === 'character' ? 'character' : kind === 'scenario' ? 'scenario' : kind === 'store_catalog' ? 'store_catalog' : 'extension');
 export function catLabel(category, kind) {
   const d = displayCat(category, kind);
   return d === 'character' ? '角色' + (kind && kind !== 'world_character' && KIND_LABEL[kind] ? ' · ' + KIND_LABEL[kind] : '') : CAT[d];

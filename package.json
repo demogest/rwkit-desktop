@@ -1,7 +1,7 @@
 {
   "name": "rwkit-desktop",
   "productName": "rwkit 离线包工具",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "轮回战场创意工坊离线包（.rwpack）的检查、修复、编辑、解包与打包工具",
   "author": "Demogest",
   "license": "MIT",

@@ -92,6 +92,7 @@ function tutorialSec(ed) {
   if (ed.type === 'regex') return isPage(ed.form.replaceString) ? 'regex-page' : 'regex';
   if (ed.type === 'script' || ed.type === 'scriptText') return 'script';
   if (ed.type === 'artifact') return ed.data.kind === 'worldbook' || ed.data.kind === 'script' ? 'conflicts' : ed.data.kind;
+  if (ed.type === 'scenario') return 'scenario';
   return ed.data.kind;
 }
 function warnsHtml(ctx) {
@@ -250,6 +251,91 @@ function scriptHtml(ed, ctx) {
   </div>`;
 }
 
+// ---------- 副本（数据 artifact 里 kind 为 scenario 的对象） ----------
+// 资料种类与世界书顺序起点；保存时由主进程检查、整理并重新生成副本世界书（见 src/main/scenario.mjs）
+const SC_TYPES = [['chapter', '章节（蓝灯）', 101], ['race', '种族（绿灯）', 201], ['force', '势力（绿灯）', 302], ['organization', '组织（绿灯）', 352], ['area', '冒险区域（绿灯）', 401]];
+const SC_MODES = [['both', '多元副本与单一世界'], ['multi', '仅多元副本'], ['single', '仅单一世界']];
+const SC_RANKS = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ', 'Ⅵ', 'Ⅶ', 'Ⅷ', 'Ⅸ'];
+const SC_LEGACY = { macro: 'chapter', event: 'chapter', always: 'chapter', faction: 'race', location: 'area', near: 'area' };
+const scType = t => (SC_TYPES.some(x => x[0] === t) ? t : SC_LEGACY[t] || 'chapter');
+// 表单里改的字段；其余字段（例如 goal、overview）原样保留
+const SC_FIELDS = ['schema_version', 'kind', 'world', 'time', 'stage', 'story', 'next', 'mode', 'laws', 'identity', 'calendar', 'rank', 'tier', 'location', 'currency', 'sections', 'initialEvents'];
+function scForm(d) {
+  const extra = {};
+  for (const [k, v] of Object.entries(d)) if (!SC_FIELDS.includes(k)) extra[k] = v;
+  const cal = isObj(d.calendar) ? d.calendar : {};
+  return {
+    world: d.world || '', mode: d.mode || 'both', rank: d.rank || 'Ⅲ', tier: d.tier || 'F~D', location: d.location || '', identity: d.identity || '', time: d.time || '', laws: d.laws || '',
+    currency: { 体系: d.currency?.体系 || '', 购买力基准: d.currency?.购买力基准 || '', 经济波动: d.currency?.经济波动 || '' },
+    calName: cal.名称 || '', calMonths: Array.isArray(cal.月份天数) ? cal.月份天数.join(',') : '', calLeap: cal.闰年规则 || '',
+    sections: (Array.isArray(d.sections) ? d.sections : []).map(r => ({ ...r, type: r?.type || 'chapter', title: r?.title || '', content: r?.content || '', keywords: r?.keywords || '', location: r?.location ?? r?.match ?? '' })),
+    extra,
+  };
+}
+function scData(f) {
+  const months = String(f.calMonths || '').split(/[，,;；\s]+/u).filter(Boolean).map(Number);
+  const calendar = f.calName.trim() || months.length || f.calLeap.trim() ? { 名称: f.calName.trim(), 月份天数: months, 闰年规则: f.calLeap.trim() } : null;
+  return {
+    ...f.extra, schema_version: 1, kind: 'scenario', world: f.world, time: f.time, mode: f.mode, laws: f.laws, identity: f.identity, calendar, rank: f.rank, tier: f.tier, location: f.location,
+    currency: { ...f.currency }, sections: f.sections.map(r => { const { title, type, content, keywords, location, ...rest } = r; return { ...rest, title, type, content, keywords, location }; }),
+  };
+}
+const TA = (p, v, ph, rows = 3) => `<textarea class="input" rows="${rows}" data-bind="${p}" data-type="text" placeholder="${esc(ph)}" spellcheck="false">${esc(v ?? '')}</textarea>`;
+function scCards(ed) {
+  const used = {};
+  return ed.form.sections.map((r, i, all) => {
+    const t = scType(r.type), order = SC_TYPES.find(x => x[0] === t)[2] + (used[t] = (used[t] ?? -1) + 1);
+    return `<div class="sc-card ${t === 'chapter' ? 'ch' : ''}">
+      <div class="sc-card-h"><span class="sc-badge ${t === 'chapter' ? 'blue' : 'green'}">${t === 'chapter' ? '蓝灯' : '绿灯'} · ${order}</span>
+        <select class="input sm" data-bind="sections.${i}.type" data-type="text">${SC_TYPES.map(([v, l]) => `<option value="${v}" ${t === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <span class="grow"></span>
+        <button class="btn xs ghost icon" data-sc="up" data-i="${i}" title="前移" ${i ? '' : 'disabled'}>${icon('arrowUp')}</button>
+        <button class="btn xs ghost icon" data-sc="down" data-i="${i}" title="后移" ${i < all.length - 1 ? '' : 'disabled'}>${icon('arrowDown')}</button>
+        <button class="btn xs ghost icon" data-sc="del" data-i="${i}" title="删除">${icon('trash')}</button></div>
+      <input class="input sc-title" data-bind="sections.${i}.title" data-type="text" value="${esc(r.title)}" placeholder="${t === 'chapter' ? '章节名称，例如：斯坦索姆抉择' : '名称（会自动作为关键词）'}" spellcheck="false">
+      ${TA(`sections.${i}.content`, r.content, t === 'chapter' ? '本章的时间、事件、人物与剧情走向' : '这条资料的设定', 4)}
+      ${t === 'chapter' ? '' : `<input class="input" data-bind="sections.${i}.keywords" data-type="text" value="${esc(r.keywords)}" placeholder="其他关键词（可选），用逗号分隔" spellcheck="false">`}
+      ${t === 'area' ? `<input class="input" data-bind="sections.${i}.location" data-type="text" value="${esc(r.location)}" placeholder="区域别名（可选），例如：东部王国-洛丹伦；也会作为关键词" spellcheck="false">` : ''}
+    </div>`;
+  }).join('') || '<div class="muted small">还没有章节：至少要有第一章。</div>';
+}
+function scenarioHtml(ed, ctx) {
+  const f = ed.form;
+  return head(ed, ctx, null, '', moreBtn(ed, ctx)) + `<div class="ed-body" data-scroll>
+    ${warnsHtml(ctx)}
+    <div class="banner info sm sc-intro">${icon('info')}<div class="bb"><div class="bs">开局时，世界初始信息写入 MVU。章节是<b>蓝灯</b>：按 MVU 的“当前阶段”亮起，第一章就是开局时的阶段，章节顺序组成故事线；种族、势力、组织、冒险区域是<b>绿灯</b>：按关键词触发。全部放在角色定义之前。<b>保存时会自动重新生成副本世界书</b>，请在这里修改，不要直接改那份世界书。</div></div></div>
+    <section class="ed-sec">
+      <h4>${icon('globe', 'xs')}世界初始信息 · MVU</h4>
+      <div class="sc-grid">
+        ${F.field('世界名称 *', F.text('world', f.world, '例如：艾泽拉斯'), '副本里的世界名，不能直接用作品名称代替。')}
+        ${F.field('适用开局模式', F.select('mode', f.mode, SC_MODES))}
+        ${F.field('世界位格', F.select('rank', f.rank, SC_RANKS.map(r => [r, r])))}
+        ${F.field('副本难度范围', F.text('tier', f.tier, 'F~D'), '写入 世界.难度。')}
+        ${F.field('初始地点', F.text('location', f.location, '留空表示由开局安排'))}
+        ${F.field('切入身份', F.text('identity', f.identity, '例如：洛丹伦旅行者'))}
+        ${F.field('开局时间', F.text('time', f.time, '具体日期、作品纪年或剧情时期'), '只用来初始化世界时间；每章的时间写在章节正文里。')}
+        ${F.field('货币体系', F.text('currency.体系', f.currency.体系, '例如：铜币、银币、金币；100 铜 = 1 银'))}
+      </div>
+      ${F.field('世界法则', TA('laws', f.laws, '副本独特的规则，用分号分隔（通用规则不用重复）'))}
+      ${F.field('购买力基准', TA('currency.购买力基准', f.currency.购买力基准, '例如：普通旅店住一晚约 1 银币', 2))}
+      ${F.field('经济波动', TA('currency.经济波动', f.currency.经济波动, '例如：战争时期粮价明显上涨', 2))}
+      <details class="sc-cal" ${f.calName || f.calMonths || f.calLeap ? 'open' : ''}><summary>自定义作品历法（可选）</summary>
+        ${F.field('历法名称', F.text('calName', f.calName, '例如：艾泽拉斯历'))}
+        ${F.field('每月天数', F.text('calMonths', f.calMonths, '例如：31,28,31,30,31,30,31,31,30,31,30,31'), '1～24 个月，用逗号隔开。')}
+        ${F.field('闰年规则', F.text('calLeap', f.calLeap, '例如：每四年增加一天'))}
+      </details>
+    </section>
+    <section class="ed-sec">
+      <h4>${icon('list', 'xs')}章节与世界书资料 <span class="muted small" data-live="sccount"></span></h4>
+      <div class="fhint">章节：蓝灯 101–200；种族 201–299、势力 302–349、组织 352–399、冒险区域 401–499：绿灯。最多 394 条，名称不能重复，正文里不能写 EJS。</div>
+      <div class="sc-story" data-live="scstory"></div>
+      <div class="sc-list" data-sc-list>${scCards(ed)}</div>
+      <div class="row"><button class="btn sm" data-sc="add" data-t="chapter">${icon('plus')}新增章节</button><button class="btn sm ghost" data-sc="add" data-t="race">${icon('plus')}新增资料</button></div>
+    </section>
+    <details class="ed-sec adv"><summary>${icon('sliders', 'xs')}其他字段</summary><details class="raw"><summary>保存的副本数据（JSON，只读；当前阶段、故事线与开局事件在保存时算出）</summary><pre class="code" data-live="json"></pre></details></details>
+  </div>`;
+}
+
 // ---------- 预设、数据等整体内容 ----------
 function rawHtml(ed, ctx) {
   return head(ed, ctx, null, '', moreBtn(ed, ctx)) + `<div class="ed-body" data-scroll>${warnsHtml(ctx)}
@@ -288,7 +374,7 @@ function artifactHtml(ed, ctx) {
 
 // ---------- 渲染与绑定 ----------
 export function editorHtml(ed, ctx) {
-  const body = { entry: entryHtml, regex: regexHtml, script: scriptHtml, scriptText: scriptHtml, raw: rawHtml, artifact: artifactHtml }[ed.type](ed, ctx);
+  const body = { entry: entryHtml, regex: regexHtml, script: scriptHtml, scriptText: scriptHtml, raw: rawHtml, scenario: scenarioHtml, artifact: artifactHtml }[ed.type](ed, ctx);
   return `<div class="ed" data-type="${ed.type}">${body}${footHtml(ed, ctx)}</div>`;
 }
 // 把表单与 ed.form 绑定；返回清理函数。ctx.changed(ed) 在每次修改后调用
@@ -315,7 +401,12 @@ export function bindEditor(root, ed, ctx) {
       if (cm && cm.lang !== (page ? 'html' : 'text')) { cm.lang = page ? 'html' : 'text'; cm.setLang(cm.lang); }
       tester(re, err);
     }
-    if ($('[data-live="json"]', root)) set('json', esc(JSON.stringify(ed.type === 'artifact' ? f : f, null, 2)));
+    if (ed.type === 'scenario') {
+      const names = f.sections.filter(r => scType(r.type) === 'chapter').map(r => String(r.title || '').trim()).filter(Boolean);
+      set('scstory', names.length ? `开局当前阶段：<b>${esc(names[0])}</b>　｜　故事线：${names.map(esc).join(' → ')}` : '<span class="warn-text">请至少添加一个章节：第一章的名称会成为开局时的当前阶段。</span>');
+      set('sccount', `· ${f.sections.length} / 394 条`);
+    }
+    if ($('[data-live="json"]', root)) set('json', esc(JSON.stringify(ed.type === 'scenario' ? scData(f) : f, null, 2)));
   };
   const tester = (re, err) => {
     const ta = $('[data-test]', root); if (!ta) return;
@@ -377,6 +468,7 @@ export function bindEditor(root, ed, ctx) {
     return el.value;
   };
   const rerenderList = p => { const box = $(`[data-list="${p}"]`, root); if (box) box.innerHTML = listInner(p, ed); };
+  const renderSc = () => { const box = $('[data-sc-list]', root); if (box) box.innerHTML = scCards(ed); live(); };
   const onInput = e => {
     const el = e.target;
     if (el.matches('[data-test]')) { live(); return; }
@@ -390,6 +482,7 @@ export function bindEditor(root, ed, ctx) {
       r.target = r.kind === 'worldbook' ? { worldbook: '', uid: '', name: '' } : r.kind === 'script' ? { scope: 'character', id: '', name: '' } : { scope: 'character', id: '', name: '' };
       rerenderList('overrides');
     }
+    if (ed.type === 'scenario' && /^sections\.\d+\.type$/.test(b)) renderSc();
     if ((m = /^dependencies\.(\d+)\.project_id$/.exec(b))) { const span = el.closest('.list-row')?.querySelector('.dep-name'); if (span) span.textContent = ed.names?.[el.value.trim()] || ''; }
     changed();
   };
@@ -443,6 +536,18 @@ export function bindEditor(root, ed, ctx) {
     if (la) { const p = la.dataset.listAdd, list = (getPath(ed.form, p) || []).slice(); list.push(LISTS[p].add(ed)); setPath(ed.form, p, list); rerenderList(p); changed(); $$('input,select', $(`[data-list="${p}"]`, root)).filter(x => x.closest('.list-row')).at(-1)?.focus(); return; }
     const ld = e.target.closest('[data-list-del]');
     if (ld) { const p = ld.dataset.listDel, list = (getPath(ed.form, p) || []).slice(); list.splice(Number(ld.dataset.i), 1); setPath(ed.form, p, list); rerenderList(p); changed(); return; }
+    // 副本：新增、移动、删除章节与资料
+    const sc = e.target.closest('[data-sc]');
+    if (sc && ed.type === 'scenario') {
+      const list = ed.form.sections, i = Number(sc.dataset.i);
+      if (sc.dataset.sc === 'add') { if (list.length >= 394) return; list.push({ type: sc.dataset.t, title: '', content: '', keywords: '', location: '' }); }
+      if (sc.dataset.sc === 'up' && i > 0) [list[i - 1], list[i]] = [list[i], list[i - 1]];
+      if (sc.dataset.sc === 'down' && i < list.length - 1) [list[i + 1], list[i]] = [list[i], list[i + 1]];
+      if (sc.dataset.sc === 'del') list.splice(i, 1);
+      renderSc(); changed();
+      if (sc.dataset.sc === 'add') $$('.sc-title', root).at(-1)?.focus();
+      return;
+    }
     const g = e.target.closest('[data-goto]');
     if (g) { const cm = cms.get('content') || cms.get('text'); cm?.gotoLine(Number(g.dataset.goto)); return; }
     const a = e.target.closest('[data-ed]');
@@ -463,6 +568,11 @@ export function makeEd(path, a, key, detail) {
     return { type: 'artifact', path, a, key: null, data: detail, form, orig: clone(form), dirty: false };
   }
   let type, form;
+  // 副本数据用副本编辑器（内容是一个 kind 为 scenario 的对象时）
+  if (detail.whole && detail.kind === 'data' && detail.json) {
+    let v = null; try { v = JSON.parse(detail.text); } catch {}
+    if (isObj(v) && v.kind === 'scenario') { form = scForm(v); return { type: 'scenario', path, a, key, data: detail, form, orig: clone(form), dirty: false }; }
+  }
   if (detail.whole) { type = 'raw'; form = { text: detail.text }; }
   else if (detail.textOnly) { type = 'scriptText'; form = { text: detail.text }; }
   else { type = { worldbook: 'entry', regex: 'regex', script: 'script' }[detail.kind] || 'raw'; form = clone(detail.value); if (type === 'raw') form = { text: detail.text }; }
@@ -489,6 +599,7 @@ export function editOp(ed) {
     return { op: 'item', a: ed.a, key: ed.key, value };
   }
   if (ed.type === 'scriptText') return { op: 'item', a: ed.a, key: ed.key, value: ed.form.text };
+  if (ed.type === 'scenario') return { op: 'scenario', a: ed.a, data: scData(ed.form) };
   let value = clone(ed.form);
   if (ed.type === 'script' && Array.isArray(value.button?.buttons)) value.button.buttons = value.button.buttons.filter(b => String(b?.name || '').trim());
   if (ed.type === 'entry') value = syncEntry(value);

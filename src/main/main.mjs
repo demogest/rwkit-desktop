@@ -1,5 +1,5 @@
 // rwkit 桌面版主进程：窗口、IPC、系统对话框、单实例与 .rwpack 文件关联
-import { app, BrowserWindow, ipcMain, dialog, shell, protocol, nativeTheme, Menu, screen, session, safeStorage, nativeImage, net } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, protocol, nativeTheme, Menu, screen, session, safeStorage, nativeImage, net, Notification } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
@@ -123,6 +123,13 @@ async function start() {
       const img = nativeImage.createFromBuffer(c.buf);
       if (img.isEmpty() || img.getSize().width <= width) return c;
       return { type: 'image/jpeg', buf: img.resize({ width, quality: 'good' }).toJPEG(84) };
+    },
+    // 审核结果：窗口不在前台时用系统通知，点通知打开“我的作品”
+    notify: ({ title, body }) => {
+      if (!Notification.isSupported() || (win && !win.isDestroyed() && win.isFocused())) return;
+      const n = new Notification({ title: 'rwkit · ' + title, body });
+      n.on('click', () => { if (!win || win.isDestroyed()) return; if (win.isMinimized()) win.restore(); win.show(); win.focus(); send('workshop', { type: 'open-mine' }); });
+      n.show();
     },
     log,
     emit: send,

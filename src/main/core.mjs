@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import vm from 'node:vm';
 import { execFileSync, spawn } from 'node:child_process';
 import { LIMITS, publishIssues, contentKind, normTags, storeCatalogTemplate } from './limits.mjs';
+import { findScenario, isScenario, isScenarioBook, normalizeScenario, scenarioBookName, scenarioTemplate, scenarioWorldbook } from './scenario.mjs';
 
 const IS_WIN = process.platform === 'win32';
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -590,7 +591,7 @@ function artifactDetail(p, ai) {
 function projectDetail(p) {
   const src = getSource(p), pj = src.pack.project || {};
   const { cover_url, ...rest } = pj;
-  return { project: rest, kind: contentKind(src.pack).kind, hasStore: src.pack.bundle?.artifacts?.some(a => a?.kind === 'data' && contentKind({ project: { category: 'extension' }, bundle: { artifacts: [a] } }).kind === 'store_catalog') || false, cover: coverMeta(src.pack), hasCover: !!cover_url, overrides: src.pack.bundle?.resource_overrides || [], sig: src.sig, isFolder: !!src.dir, draft: !!src.draft };
+  return { project: rest, kind: contentKind(src.pack).kind, hasStore: src.pack.bundle?.artifacts?.some(a => a?.kind === 'data' && contentKind({ project: { category: 'extension' }, bundle: { artifacts: [a] } }).kind === 'store_catalog') || false, hasScenario: !!findScenario(src.pack.bundle?.artifacts || []), cover: coverMeta(src.pack), hasCover: !!cover_url, overrides: src.pack.bundle?.resource_overrides || [], sig: src.sig, isFolder: !!src.dir, draft: !!src.draft };
 }
 
 // ---------- 两个版本的差异 ----------
@@ -683,7 +684,7 @@ function checkProjectFields(f) {
   if ('name' in f && (typeof f.name !== 'string' || !f.name.trim())) fail('项目名称不能为空');
   if ('name' in f && String(f.name).trim().length > LIMITS.name) fail(`项目名称不能超过 ${LIMITS.name} 个字（创意工坊的上限）`);
   if ('summary' in f && String(f.summary ?? '').trim().length > LIMITS.summary) fail(`简介不能超过 ${LIMITS.summary} 个字（创意工坊的上限）`);
-  if ('category' in f && !['extension', 'character'].includes(f.category)) fail('分类只能是扩展或角色（开局商店属于扩展）');
+  if ('category' in f && !['extension', 'character'].includes(f.category)) fail('分类只能是扩展或角色（开局商店、副本属于扩展）');
   if ('version' in f && (!Number.isInteger(Number(f.version)) || Number(f.version) < 1)) fail('版本号必须是不小于 1 的整数');
   if ('dependencies' in f) {
     if (!Array.isArray(f.dependencies) || f.dependencies.length > 12) fail('依赖最多 12 个');
@@ -770,6 +771,18 @@ function newRegex(fields = {}) {
 function newScript(fields = {}) {
   return withDefaults({ type: 'script', enabled: true, name: '新脚本', id: crypto.randomUUID(), button: { enabled: true, buttons: [] }, data: {}, export_with: { data: true, button: true }, content: '// 新脚本\n', info: '' }, fields);
 }
+// 副本：保存副本数据并重新生成它的世界书（检查与整理见 scenario.mjs）
+function scenarioArtifacts(arts, a, data, projectName) {
+  const cur = arts[a];
+  if (!cur || cur.kind !== 'data') fail('找不到副本数据');
+  let norm;
+  try { norm = normalizeScenario(data); } catch (e) { fail('副本：' + e.message); }
+  let content = typeof cur.content === 'string' ? (() => { try { return JSON.parse(cur.content); } catch { return null; } })() : cur.content;
+  content = Array.isArray(content) && content.some(isScenario) ? content.map((v, i) => (i === content.findIndex(isScenario) ? norm : v)) : norm;
+  const w = arts.findIndex(isScenarioBook);
+  const book = { ...(w >= 0 ? arts[w] : { kind: 'worldbook', format: 'json', name: scenarioBookName(projectName || norm.world) }), content: scenarioWorldbook(norm) };
+  return { data: { ...cur, content: cur.format === 'text' ? JSON.stringify(content, null, 2) : content }, w, book };
+}
 function newArtifact({ kind, name, template }) {
   if (!KINDS.includes(kind)) fail('不支持的类型');
   let n = String(name || '').trim();
@@ -777,6 +790,7 @@ function newArtifact({ kind, name, template }) {
   if (n.length > LIMITS.artifactName) fail(`名称不能超过 ${LIMITS.artifactName} 个字（创意工坊的上限）`);
   // 开局商店目录：与官方客户端生成的格式一致
   if (kind === 'data' && template === 'store_catalog') return { kind, format: 'json', name: /\.json$/i.test(n) ? n : n + '.store.json', content: storeCatalogTemplate() };
+  if (kind === 'data' && template === 'scenario') return { kind, format: 'json', name: /\.json$/i.test(n) ? n : n + '.scenario.json', content: scenarioTemplate() };
   if (!/\.(json|txt|js)$/i.test(n)) n += '.json';
   if (kind === 'worldbook') return { kind, format: 'json', name: n, content: { entries: { 1: newEntry(1) } } };
   if (kind === 'regex') return { kind, format: 'json', name: n, content: newRegex({ scriptName: n.replace(/\.json$/i, ''), findRegex: '【' + n.replace(/\.json$/i, '') + '】' }) };
@@ -810,6 +824,13 @@ function editPackObject(pack, op) {
     }
     case 'overrides': checkOverrides(op.list); pack.bundle.resource_overrides = clone(op.list); return {};
     case 'artifactMeta': arts[op.a] = applyArtifactMeta(art(op.a), op.meta || {}); return {};
+    case 'scenario': {
+      const r = scenarioArtifacts(arts, op.a, op.data, pack.project?.name);
+      arts[op.a] = r.data;
+      if (r.w >= 0) arts[r.w] = r.book;
+      else { if (arts.length >= (R.MAX_ARTIFACTS || 32)) fail('artifact 最多 ' + (R.MAX_ARTIFACTS || 32) + ' 个'); arts.splice(op.a + 1, 0, r.book); }
+      return {};
+    }
     case 'item': {
       const a = art(op.a), it = itemsOf(a).find(x => x.key === op.key);
       if (!it) fail('找不到这一项（可能已被删除）');
@@ -1015,6 +1036,31 @@ function fileRefsIn(raw, base) {
   return out;
 }
 function entryFileName(key, e) { return R.safeName(key + (String(e.comment ?? e.name ?? '').trim() ? ' ' + String(e.comment ?? e.name).trim() : ''), 70) + '.txt'; }
+// 把一个 artifact 写成文件夹（与解包相同的结构）
+function writeArtifactTo(target, a) {
+  const w = new R.Writer(target);
+  const meta = {};
+  for (const k of Object.keys(a)) meta[k] = k === 'content' ? R.artifactContent(a, w) : R.escapeLiterals(clone(a[k]));
+  w.write('artifact.json', JSON.stringify(meta, null, 2) + '\n');
+}
+// 新的 artifact 放在最后，编号接着往下
+function writeArtifactFolder(dir, folders, a) {
+  const nums = folders.map(f => Number(/^(\d+)/.exec(f)?.[1] || 0));
+  const prefix = String(Math.max(folders.length, ...nums) + 1).padStart(2, '0');
+  const name = uniqueName(dir, prefix + ' ' + ((R.KIND_LABEL || {})[a.kind] || a.kind) + ' · ' + R.safeName(a.name.replace(/\.(json|txt|js)$/i, ''), 40));
+  writeArtifactTo(path.join(dir, name), a);
+  return name;
+}
+// 整个替换一个 artifact 文件夹：先写到临时文件夹再换上，旧的移到回收站
+async function rewriteArtifactFolder(dir, name, a) {
+  const target = path.join(dir, name), tag = crypto.randomBytes(4).toString('hex');
+  const tmp = path.join(dir, '.rwkit-new-' + tag), old = path.join(dir, '.rwkit-old-' + tag);
+  writeArtifactTo(tmp, a);
+  fs.renameSync(target, old);
+  try { fs.renameSync(tmp, target); }
+  catch (e) { try { fs.renameSync(old, target); } catch {} fs.rmSync(tmp, { recursive: true, force: true }); fail('写入 ' + name + ' 失败（文件夹可能正被其他程序占用）：' + e.message); }
+  await env.trash(old);
+}
 async function editFolder(dir, op) {
   needEdit();
   const pjFile = path.join(dir, 'project.json');
@@ -1057,6 +1103,15 @@ async function editFolder(dir, op) {
     w.write('artifact.json', JSON.stringify(meta, null, 2) + '\n');
     touchDone();
     return { changed: true, a: getSource(dir).folders.indexOf(name) };
+  }
+  if (op.op === 'scenario') {
+    const r = scenarioArtifacts(arts, op.a, op.data, src.pack.project?.name);
+    if (!folders[op.a]) fail('找不到副本数据的文件夹');
+    await rewriteArtifactFolder(dir, folders[op.a], r.data);
+    if (r.w >= 0) await rewriteArtifactFolder(dir, folders[r.w], r.book);
+    else writeArtifactFolder(dir, folders, r.book);
+    touchDone();
+    return { changed: true };
   }
   const a = arts[op.a];
   if (!a || !folders[op.a]) fail('找不到这个 artifact');
@@ -1208,8 +1263,8 @@ export async function edit(p, op) {
 
 // ---------- 新建项目 ----------
 function newProject({ dir, name, category = 'extension' }) {
-  const store = category === 'store_catalog';
-  if (store) category = 'extension';
+  const store = category === 'store_catalog', scenario = category === 'scenario';
+  if (store || scenario) category = 'extension';
   needEdit();
   if (!R.writeSource || !R.freeDir) fail('当前使用的 rwkit.mjs 版本不支持新建项目');
   const n = String(name || '').trim();
@@ -1222,9 +1277,14 @@ function newProject({ dir, name, category = 'extension' }) {
     manifest: { schema_version: 1 },
     bundle: { schema_version: 1, artifacts: [newArtifact({ kind: 'worldbook', name: n + '-世界书' })], resource_overrides: [] },
   };
-  pack.bundle.artifacts[0].content.entries[1].comment = n + '·总纲';
-  pack.bundle.artifacts[0].content.entries[1].constant = true;
-  pack.bundle.artifacts[0].content.entries[1].content = '<' + n + '>\n在这里写常驻设定。\n</' + n + '>';
+  if (scenario) {
+    // 副本：先只有副本数据；世界书在副本编辑器里填好世界名称、第一次保存时生成
+    pack.bundle.artifacts = [{ kind: 'data', format: 'json', name: n + '.scenario.json', content: scenarioTemplate() }];
+  } else {
+    pack.bundle.artifacts[0].content.entries[1].comment = n + '·总纲';
+    pack.bundle.artifacts[0].content.entries[1].constant = true;
+    pack.bundle.artifacts[0].content.entries[1].content = '<' + n + '>\n在这里写常驻设定。\n</' + n + '>';
+  }
   if (store) pack.bundle.artifacts.push({ kind: 'data', name: n + '.store.json', format: 'json', content: storeCatalogTemplate() });
   R.rebuildManifest(pack, []);
   const target = R.freeDir(path.join(dir, R.safeName(n, 60)), false);
@@ -1328,7 +1388,7 @@ const KIND_NAME = { worldbook: '世界书', regex: '正则', script: '脚本', p
 export function reviewText(p, only) {
   const { pack } = sourcePack(p);
   const pr = pack.project || {}, arts = pack.bundle?.artifacts || [];
-  const out = [`# 作品：${pr.name || '未命名'}（${pr.category === 'character' ? '角色' : contentKind(pack).kind === 'store_catalog' ? '开局商店' : '扩展'}）`];
+  const out = [`# 作品：${pr.name || '未命名'}（${pr.category === 'character' ? '角色' : ({ scenario: '副本', store_catalog: '开局商店' })[contentKind(pack).kind] || '扩展'}）`];
   if (pr.summary) out.push('简介：' + pr.summary);
   if (pr.tags?.length) out.push('标签：' + pr.tags.join('、'));
   arts.forEach((a, i) => {
