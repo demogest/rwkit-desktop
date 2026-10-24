@@ -1,8 +1,9 @@
 // rwkit 桌面版界面
-import { $, $$, esc, clone, stable, samePath, baseName, debounce, KIND, KIND_ICON, CAT, LV, POS, ROLE, PLACE, SCOPE, MAX_BYTES, fmtSize, fmtTime, hue, icon, pill, srcPill, toast, copyText, modal, ask, form, layers, menu, closeMenu } from './util.js';
+import { $, $$, esc, clone, stable, samePath, baseName, debounce, KIND, KIND_ICON, CAT, KIND_LABEL, displayCat, catLabel, counter, LV, POS, ROLE, PLACE, SCOPE, MAX_BYTES, fmtSize, fmtTime, hue, icon, pill, srcPill, toast, copyText, modal, ask, form, layers, menu, closeMenu } from './util.js';
 import { diffHtml } from './diff.js';
 import { editorHtml, bindEditor, makeEd, editOp, footHtml, pageOf, F, listHtml } from './editors.js';
 import { initUpdates, onUpdateEvent, sideNotice, updatesClick, updateFlow } from './updates.js';
+import { initAI, onAIEvent, aiAssist, aiReviewFlow, aiSettingsFlow, cmTarget, aiIn, aiState } from './ai.js';
 import { initTavern, onTavernEvent, sideStatus, tavernCard, tavernClick, setupFlow, installFlow, installSource, tavernState } from './tavern.js';
 import { initWorkshop, onWorkshopEvent, projectsChanged, remoteNewer, sideEntry, crumb as wsCrumb, renderWorkshop, projectCard, workshopClick, workshopInput, workshopChange, workshopSeg, serverFlow, loginFlow, workshopState } from './workshop.js';
 
@@ -67,7 +68,7 @@ function renderSide() {
       h += `<div class="ps${p.id === S.sel && S.view !== 'workshop' ? ' sel' : ''}" data-act="select" data-id="${esc(p.id)}" title="${esc(p.name)}${up ? '（创意工坊有新版本 v' + up + '）' : ''}">
         ${thumb(p, 'sm')}
         <div class="ps-body"><div class="ps-name">${esc(p.name)}</div>
-        <div class="ps-sub"><span>${esc(CAT[p.category] || p.category || '')} · v${esc(p.version ?? '?')}</span>${p.folders.length ? `<span title="项目文件夹">${icon('folder', 'xs')}${p.folders.length}</span>` : ''}${p.packs.length ? `<span title="离线包">${icon('package', 'xs')}${p.packs.length}</span>` : ''}</div></div>
+        <div class="ps-sub"><span>${esc(catLabel(p.category, p.kind))} · v${esc(p.version ?? '?')}</span>${p.folders.length ? `<span title="项目文件夹">${icon('folder', 'xs')}${p.folders.length}</span>` : ''}${p.packs.length ? `<span title="离线包">${icon('package', 'xs')}${p.packs.length}</span>` : ''}</div></div>
         ${up ? `<span class="ws-up" title="创意工坊有新版本 v${up}">${icon('arrowUp', 'xs')}</span>` : ''}${p.drafts ? `<span class="dot draft" title="有未保存的修改"></span>` : `<span class="dot ${p.level}" title="${esc(LV[p.level].t)}"></span>`}</div>`;
     }
     h += '</div>';
@@ -145,7 +146,7 @@ function projHead(p, s) {
   return `<div class="ph-main">
     ${thumb(p, 'md')}
     <div class="ph-text">
-      <div class="ph-title"><h1>${esc(pj.name)}</h1><span class="pill acc">${esc(CAT[pj.category] || pj.category || '未知分类')}</span><span class="pill plain">v${esc(pj.version ?? '?')}</span>${status}</div>
+      <div class="ph-title"><h1>${esc(pj.name)}</h1><span class="pill acc">${esc(pj.category ? catLabel(pj.category, s?.project?.kind ?? p.kind) : '未知分类')}</span><span class="pill plain">v${esc(pj.version ?? '?')}</span>${status}</div>
       <div class="ph-sub ell">${esc(pj.summary || '（没有简介）')}</div>
     </div>
     <div class="ph-right">
@@ -153,17 +154,18 @@ function projHead(p, s) {
       ${s ? headActions(p, s) : ''}
     </div></div>`;
 }
+const simBtn = s => `<button class="btn" data-act="sim" data-path="${esc(s.path)}" title="在模拟酒馆里运行作品：脚本按钮与界面、正则页面、实时修改变量">${icon('tavern')}模拟预览</button>`;
 function headActions(p, s) {
   if (s.kind === 'folder') {
     const b = bumpOn(s), t = b ? s.bumpTarget : s.target, upToDate = !b && s.target?.exists && s.vsSameVersion?.same;
     return `<div class="split"><button class="btn ${upToDate || s.level === 'error' ? '' : 'primary'} needs-idle" data-act="pack" data-path="${esc(s.path)}" ${s.level === 'error' ? 'disabled title="项目文件夹有错误，修正后才能打包"' : `title="${esc(t ? '生成 ' + t.file : '')}"`}>${icon('pack')}${b ? '打包并升为 v' + esc(t?.version) : upToDate ? '重新打包' : '打包 v' + esc(s.version)}</button><button class="btn ${upToDate || s.level === 'error' ? '' : 'primary'} icon needs-idle" data-act="pack-menu" data-path="${esc(s.path)}" title="打包选项">${icon('chevDown')}</button></div>
-      <button class="btn icon" data-act="more-menu" title="更多">${icon('more')}</button>`;
+      ${simBtn(s)}<button class="btn icon" data-act="more-menu" title="更多">${icon('more')}</button>`;
   }
   if (s.draft) return `<div class="split"><button class="btn primary needs-idle" data-act="draft-save" data-path="${esc(s.path)}">${icon('save')}保存为 v${esc(Math.max((s.version || 0), (savedVersion(p, s) || 0) + 1))}</button><button class="btn primary icon needs-idle" data-act="draft-menu" data-path="${esc(s.path)}">${icon('chevDown')}</button></div>
-    <button class="btn icon" data-act="more-menu" title="更多">${icon('more')}</button>`;
+    ${simBtn(s)}<button class="btn icon" data-act="more-menu" title="更多">${icon('more')}</button>`;
   return `${s.level === 'fix' ? `<button class="btn warnb needs-idle" data-act="fix" data-path="${esc(s.path)}" title="重算大小与 SHA-256 并覆盖原文件">${icon('wrench')}修复</button>` : ''}
     <button class="btn needs-idle" data-act="unpack" data-path="${esc(s.path)}" ${s.fatal ? 'disabled' : ''} title="拆成项目文件夹，适合用 VS Code 大量修改">${icon('unpack')}解包</button>
-    <button class="btn icon" data-act="more-menu" title="更多">${icon('more')}</button>`;
+    ${simBtn(s)}<button class="btn icon" data-act="more-menu" title="更多">${icon('more')}</button>`;
 }
 const savedVersion = (p, s) => { const r = /-v(\d+)\.rwpack$/i.exec(s.file); return r ? Number(r[1]) : s.version; };
 function renderTabs(p, s) {
@@ -195,7 +197,7 @@ function renderBody(p, s) {
   if (S.tab === 'edit') return renderEdit(p, s);
   if (S.tab === 'overview') return renderOverview(p, s);
   const res = resultCard(p);
-  if (S.tab === 'checks') body.innerHTML = `<div class="page">${res}${problemsHtml(s)}</div>`;
+  if (S.tab === 'checks') body.innerHTML = `<div class="page">${res}${problemsHtml(s)}${s.fatal ? '' : aiReviewCard(s)}</div>`;
   else if (S.tab === 'changes') body.innerHTML = `<div class="page">${res}${changesHtml(p, s)}</div>`;
   else body.innerHTML = `<div class="page">${res}${logHtml(p)}</div>`;
 }
@@ -232,11 +234,11 @@ async function renderOverview(p, s) {
         <div class="card-h">${icon('pencil')}项目资料<button class="btn xs ghost" data-act="tutorial" data-sec="project" title="编写教程：项目资料">${icon('book')}教程</button><span class="grow"></span><span class="ed-state ${S.pf.dirty ? 'dirty' : ''}" data-pf-state>${S.pf.dirty ? icon('dot') + '有未保存的修改' : ''}</span>
           <button class="btn sm" data-act="pf-revert" ${S.pf.dirty ? '' : 'disabled'}>${icon('undo')}还原</button><button class="btn sm primary" data-act="pf-save" ${S.pf.dirty ? '' : 'disabled'}>${icon('save')}保存</button></div>
         <div class="card-b form">
-          ${F.field('名称', F.text('name', f.name, '项目名称'))}
-          ${F.field('分类', `<div class="seg" data-seg="pfcat">${[['extension', '扩展'], ['character', '角色包']].map(([v, t]) => `<button type="button" data-v="${v}" class="${f.category === v ? 'on' : ''}">${t}</button>`).join('')}</div>`)}
+          ${F.field('名称', `<div class="cnt-wrap"><input class="input" data-bind="name" data-type="text" value="${esc(f.name)}" placeholder="项目名称" spellcheck="false" maxlength="${LIM.name}" data-max="${LIM.name}">${counter(f.name, LIM.name)}</div>`)}
+          ${F.field('分类', catField(f, d))}
           ${F.field('版本号', `<div class="row">${F.num('version', f.version)}<span class="fhint" style="margin:0">工坊靠它识别新版本：已安装的同一版本不能直接覆盖导入。</span></div>`)}
-          ${F.field('简介', `<textarea class="input" rows="4" data-bind="summary" data-type="text" placeholder="显示在工坊“本地”页的作品卡片上">${esc(f.summary)}</textarea>`)}
-          ${F.field('标签', F.chips('tags', f.tags, '输入后按回车'))}
+          ${F.field('简介', `<div class="cnt-wrap"><textarea class="input" rows="4" data-bind="summary" data-type="text" placeholder="显示在工坊作品卡片与“本地”页上" maxlength="${LIM.summary}" data-max="${LIM.summary}">${esc(f.summary)}</textarea>${aiIn('作品简介（显示在创意工坊作品卡片上，不超过 2000 字）')}${counter(f.summary, LIM.summary)}</div>`)}
+          ${F.field('标签', F.chips('tags', f.tags, '输入后按回车'), `最多 ${LIM.tags} 个，每个不超过 ${LIM.tag} 个字（创意工坊的上限）。`)}
           ${F.field('项目 id', `<div class="row"><span class="mono small">${esc(d.project.id)}</span><button class="btn xs ghost" data-act="copy" data-text="${esc(d.project.id)}">${icon('copy')}复制</button></div>`, '依赖这个项目时要填写它。新建项目时自动生成，不要修改。')}
           <div class="form-sec"><h4>${icon('link', 'xs')}依赖 <span class="muted small">需要先安装的其他工坊项目，最多 12 个</span><button class="btn xs ghost icon" data-act="tutorial" data-sec="deps" title="编写教程：依赖">${icon('help')}</button></h4>${listHtml('dependencies', S.pf)}</div>
           <div class="form-sec"><h4>${icon('sliders', 'xs')}原版资源规则 <span class="muted small">安装后停用或启用原版角色卡里的资源，卸载时恢复</span><button class="btn xs ghost icon" data-act="tutorial" data-sec="overrides" title="编写教程：原版资源规则">${icon('help')}</button></h4>${listHtml('overrides', S.pf)}</div>
@@ -247,7 +249,7 @@ async function renderOverview(p, s) {
       <div class="card"><div class="card-h">${icon('image')}封面</div><div class="card-b">
         <div class="cover-box">${d.hasCover ? `<img src="${coverUrl({ path: s.path, v: s.sig })}" alt="">` : `<div class="cover-empty">${icon('image')}<span>没有封面</span></div>`}</div>
         <div class="row" style="margin-top:10px"><button class="btn sm needs-idle" data-act="cover-pick">${icon('upload')}${d.hasCover ? '更换图片…' : '选择图片…'}</button>${d.hasCover ? `<button class="btn sm ghost danger needs-idle" data-act="cover-remove">${icon('trash')}移除</button>` : ''}</div>
-        <div class="fhint">建议 16:9，几百 KB 以内（离线包总大小不能超过 6 MB）。</div></div></div>
+        <div class="fhint">建议 16:9，几百 KB 以内（离线包总大小不能超过 6 MB）。发布到创意工坊需要封面，且只能是 PNG、JPEG、WebP，不超过 3 MB${d.cover && (!['image/png', 'image/jpeg', 'image/webp'].includes(d.cover.type) || d.cover.size > 3145728) ? '<br><span class="warn-text">当前封面不能用于工坊。</span>' : ''}。</div></div></div>
       ${sideCards(p, s)}
     </div></div>
     <datalist id="known-projects">${S.projects.filter(x => x.id !== p.id).map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</datalist></div>`;
@@ -258,7 +260,43 @@ async function renderOverview(p, s) {
     },
     save: () => savePf(), action: () => {}, syntax: async () => ({ ok: true }),
   });
-  $('#pfcard').addEventListener('click', e => { const seg = e.target.closest('[data-seg="pfcat"] button'); if (seg) { S.pf.form.category = seg.dataset.v; S.pf.dirty = stable(S.pf.form) !== stable(S.pf.orig); $('[data-pf-state]').innerHTML = S.pf.dirty ? icon('dot') + '有未保存的修改' : ''; $$('[data-act="pf-revert"],[data-act="pf-save"]').forEach(b => { b.disabled = !S.pf.dirty; }); } });
+  $('#pfcard').addEventListener('click', e => { const seg = e.target.closest('[data-seg="pfcat"] button'); if (seg) pickCategory(seg.dataset.v, s); });
+}
+// 工坊的三种分类：扩展 / 角色 / 开局商店。开局商店在服务器上属于“扩展”，由内容里的开局商店目录决定
+const LIM = { name: 80, summary: 2000, tags: 12, tag: 24, changelog: 2000 };
+function catField(f, d) {
+  const cur = displayCat(f.category, f.category === 'character' ? d.kind : d.hasStore ? 'store_catalog' : 'extension');
+  const seg = `<div class="seg" data-seg="pfcat">${[['extension', '扩展'], ['character', '角色'], ['store_catalog', '开局商店']].map(([v, t]) => `<button type="button" data-v="${v}" class="${cur === v ? 'on' : ''}">${t}</button>`).join('')}</div>`;
+  const hint = cur === 'character' ? `角色用途：<b>${esc(KIND_LABEL[d.kind] || '世界书角色')}</b>（由内容决定：带 kind 为 opening_character / opening_partner 的数据时是开局角色 / 开局伙伴，否则是世界书角色）`
+    : cur === 'store_catalog' ? '项目里有开局商店目录（kind 为 store_catalog 的数据），工坊会把它归为“开局商店”。'
+      : '通用扩展：世界书、正则、脚本等。';
+  return seg + `<div class="fhint">${hint}</div>`;
+}
+function markPfDirty() {
+  S.pf.dirty = stable(S.pf.form) !== stable(S.pf.orig);
+  $('[data-pf-state]').innerHTML = S.pf.dirty ? icon('dot') + '有未保存的修改' : '';
+  $$('[data-act="pf-revert"],[data-act="pf-save"]').forEach(b => { b.disabled = !S.pf.dirty; });
+}
+async function pickCategory(v, s) {
+  const d = S.pf.data;
+  if (v === 'character') { S.pf.form.category = 'character'; markPfDirty(); renderBody(curProject(), curSrc()); return; }
+  if (v === 'extension' && d.hasStore) {
+    await ask({ title: '项目里有开局商店目录', html: '<p>带开局商店目录（kind 为 store_catalog 的数据）的扩展，工坊会归为“开局商店”。要改成通用扩展，请先在“编辑内容”里删除那份数据。</p>', buttons: [{ label: '知道了', value: null, primary: true }] });
+    return;
+  }
+  if (v === 'store_catalog' && !d.hasStore) {
+    const ok = await ask({ title: '改为开局商店', html: '<p>开局商店需要一份开局商店目录：会新建数据 artifact“' + esc(S.pf.form.name || '开局商店') + '.store.json”，里面是空的装备、道具、技能目录，在“编辑内容”里补充商品。</p><p class="muted small">商品字段见编写教程“开局商店”。</p>', buttons: [{ label: '取消', value: null }, { label: '添加开局商店目录', value: 'ok', primary: true }] });
+    if (ok !== 'ok') return;
+    if (S.pf.dirty) await savePf();
+    busy(true);
+    try {
+      applyView(await apiOk('edit', { path: s.path, op: { op: 'addArtifact', kind: 'data', name: (S.pf?.form.name || curProject()?.name || '开局商店') + '.store.json', template: 'store_catalog' } }));
+      if (curProject()?.category === 'character') applyView(await apiOk('edit', { path: s.path, op: { op: 'project', fields: { category: 'extension' } } }));
+      S.pf = null; toast('已添加开局商店目录', 'ok');
+    } catch (err) { toast(err.message, 'error', 6000); }
+    busy(false); render(); return;
+  }
+  S.pf.form.category = 'extension'; markPfDirty(); renderBody(curProject(), curSrc());
 }
 function teardownPf(keepState) { if (S.pfCleanup) { S.pfCleanup(); S.pfCleanup = null; } if (!keepState && S.pf && !S.pf.dirty) S.pf = null; }
 async function savePf() {
@@ -409,7 +447,17 @@ function edCtx(s) {
     changed: () => { updateEdFoot(); markNavDirty(); },
     save: () => saveEditor(), syntax: code => api('syntax', { code }),
     action: (act, el) => edAction(act, el),
+    ai: (e, cm) => aiAssist({ field: AI_FIELD[e.type === 'raw' && e.data.json ? 'json' : e.type] || '内容', target: cmTarget(cm), context: aiContext(e) }),
   };
+}
+// AI 帮写：告诉模型正在写哪里，以及所在条目的名称、关键词等
+const AI_FIELD = { entry: '世界书条目正文', regex: '正则的替换内容（匹配到的文字会被替换成它）', script: '酒馆助手脚本（JavaScript）', scriptText: '酒馆助手脚本（JavaScript）', raw: '文本内容', json: 'JSON 数据（预设或数据）' };
+function aiContext(e) {
+  const f = e.form, l = [];
+  if (e.type === 'entry') { l.push('条目名称：' + (f.comment || '（未命名）')); l.push(f.constant ? '触发：常驻' : '关键词：' + ((f.key || []).join('，') || '（无）')); }
+  if (e.type === 'regex') { l.push('正则名称：' + (f.scriptName || '')); l.push('查找：' + (f.findRegex ?? '')); }
+  if (e.type === 'script') { l.push('脚本名称：' + (f.name || '')); if (f.info) l.push('说明：' + f.info); const b = (f.button?.buttons || []).map(x => x?.name).filter(Boolean); if (b.length) l.push('按钮：' + b.join('，')); }
+  return l.length ? '【所在条目】\n' + l.join('\n') : '';
 }
 function teardownEditor() { if (S.edCleanup) { S.edCleanup(); S.edCleanup = null; } S.ed = null; }
 async function loadDetail(s, sel) {
@@ -513,6 +561,7 @@ async function edAction(act, el) {
   if (act === 'save') return saveEditor();
   if (act === 'revert') { const fresh = makeEd(ed.path, ed.a, ed.key, ed.data); fresh.mode = ed.mode; fresh.sig = ed.sig; fresh.form = clone(ed.orig); fresh.orig = clone(ed.orig); mountEditor(s, fresh); return; }
   if (act === 'preview') return previewPage(ed.form.replaceString, ed.form.scriptName);
+  if (act === 'ai-review') return aiReviewFlow(s.path, ed.a);
   if (act === 'duplicate') {
     const v = clone(ed.orig);
     delete v.uid; delete v.id;
@@ -573,11 +622,15 @@ async function previewPage(text, label) {
   const html = pageOf(text);
   if (!html) { toast('替换内容不是 HTML 页面', 'warn'); return; }
   const { url } = await api('preview', { html });
-  const m = modal({ cls: 'wide', title: '预览页面 · ' + esc(label || ''), body: `<div class="fhint" style="margin:0 0 8px">在隔离的沙箱里显示，读取不到酒馆与 MVU 变量；$1 等占位符保持原样。</div><iframe class="preview" sandbox="allow-scripts" src="${esc(url)}"></iframe>` });
+  const m = modal({ cls: 'wide', title: '预览页面 · ' + esc(label || ''), body: `<div class="fhint" style="margin:0 0 8px">在隔离的沙箱里显示，读取不到酒馆与 MVU 变量，也调用不了作品脚本；$1 等占位符保持原样。需要脚本或变量的页面请用页头的“模拟预览”。</div><iframe class="preview" sandbox="allow-scripts" src="${esc(url)}"></iframe>` });
   m.body.classList.add('col');
 }
 
 // ---------- 检查结果 ----------
+function aiReviewCard(s) {
+  const ps = aiState()?.profiles || [];
+  return `<div class="ai-card">${icon('sparkles')}<div class="bb"><div class="bt">AI 审查</div><div class="bs">上面的检查只看格式与工坊规则。让 AI 通读整个作品，找出设定矛盾、错别字、世界书触发问题、正则与脚本的错误${ps.length ? '' : '（需要先设置 AI 接口）'}。内容会发送给你设置的 AI 接口。</div></div><button class="btn" data-act="ai-review" data-path="${esc(s.path)}">${icon('sparkles')}AI 审查整个作品</button></div>`;
+}
 function fatalHtml(msg) {
   const m = /^([\s\S]*?)（第 (\d+) 行第 (\d+) 列附近：…([\s\S]*)…）\s*$/.exec(msg);
   if (!m) return esc(msg);
@@ -774,9 +827,9 @@ async function exampleFlow() {
 async function newProjectFlow() {
   const r = await form({ title: '新建项目', intro: '会新建一个项目文件夹，里面有一份带一条常驻条目的世界书。之后可以在这里直接编辑，并打包成 .rwpack。', fields: [
     { key: 'name', label: '项目名称', value: '', placeholder: '例如：我的新扩展', autofocus: true },
-    { key: 'category', label: '分类', type: 'seg', value: 'extension', options: [['extension', '扩展'], ['character', '角色包']] },
+    { key: 'category', label: '分类', type: 'seg', value: 'extension', options: [['extension', '扩展'], ['character', '角色'], ['store_catalog', '开局商店']], hint: '开局商店会带一份空的开局商店目录（数据 artifact），在“编辑内容”里补充商品。' },
     { key: 'dir', label: '放在', type: 'folder', value: S.env.lastDir || S.app.documents || '' },
-  ], okLabel: '新建', pickFolder: async cur => (await pick('folder', { title: '选择放项目文件夹的位置', defaultPath: cur }))[0], validate: v => (!v.name.trim() ? '请填写项目名称' : !v.dir.trim() ? '请选择位置' : null) });
+  ], okLabel: '新建', pickFolder: async cur => (await pick('folder', { title: '选择放项目文件夹的位置', defaultPath: cur }))[0], validate: v => (!v.name.trim() ? '请填写项目名称' : v.name.trim().length > LIM.name ? `项目名称不能超过 ${LIM.name} 个字` : !v.dir.trim() ? '请选择位置' : null) });
   if (r) runAction('new', null, { name: r.name.trim(), category: r.category, dir: r.dir.trim() });
 }
 async function removeFlow(id) {
@@ -833,6 +886,10 @@ function settingsFlow() {
       <div class="row" style="margin-top:8px"><button class="btn sm" data-set="pick-rwkit">${icon('file')}选择 rwkit.mjs…</button>${s.rwkitPath ? `<button class="btn sm ghost" data-set="reset-rwkit">${icon('undo')}恢复内置版本</button>` : ''}</div></div>
     <div class="set-sec"><h4>创意工坊</h4><div class="kv"><div class="k">服务器</div><div class="v"><span class="mono small">${esc(workshopState().st?.base || '')}</span></div><div class="k">账号</div><div class="v">${workshopState().st?.user ? esc(workshopState().st.user.name) + '（Discord）' : '未登录'}</div></div>
       <div class="row" style="margin-top:8px"><button class="btn sm" data-set="ws-server">${icon('globe')}服务器与下载位置…</button>${workshopState().st?.user ? '' : `<button class="btn sm discord" data-set="ws-login">${icon('discord')}使用 Discord 登录</button>`}</div></div>
+    <div class="set-sec"><h4>AI 帮写</h4><div class="kv"><div class="k">接口</div><div class="v">${(() => { const a = aiState(); const p = a?.profiles.find(x => x.id === a.active); return p ? esc(p.name) + ' <span class="mono small muted">' + esc(p.model) + '</span>' + (a.profiles.length > 1 ? ' <span class="muted small">（共 ' + a.profiles.length + ' 个）</span>' : '') : '未设置'; })()}</div></div>
+      <div class="row" style="margin-top:8px"><button class="btn sm" data-set="ai">${icon('sparkles')}接口与提示词…</button></div><div class="fhint">在编辑器、简介、更新说明等位置点“AI”，润色、代写、修改或审查内容。支持 OpenAI 兼容接口、Anthropic Claude 与 Google Gemini。</div></div>
+    <div class="set-sec"><h4>模拟酒馆</h4><div class="kv"><div class="k">版本</div><div class="v">${S.sim?.ok ? `SillyTavern ${esc(S.sim.versions.sillytavern)} · 酒馆助手 ${esc(S.sim.versions.tavernHelper)}` : `<span style="color:var(--err)">${esc(S.sim?.error || '不可用')}</span>`}</div></div>
+      <div class="row" style="margin-top:8px"><button class="btn sm" data-set="sim-reset" ${S.sim?.ok ? '' : 'disabled'}>${icon('trash')}清空模拟酒馆的数据…</button></div><div class="fhint">作品页的“模拟预览”在单独的窗口里运行随 rwkit 附带的官方 SillyTavern 前端与酒馆助手，数据与你自己的酒馆分开保存。</div></div>
     <div class="set-sec"><h4>SillyTavern</h4><div class="kv"><div class="k">安装桥</div><div class="v">${tavernState().st?.running ? (tavernState().st.connected ? '已连接' + (tavernState().st.client?.character ? '（当前角色：' + esc(tavernState().st.client.character) + '）' : '') : '已启用，等待 SillyTavern 连接') : '未启用'} <span class="muted small">127.0.0.1:${esc(tavernState().st?.port || '')}</span></div></div>
       <div class="row" style="margin-top:8px"><button class="btn sm" data-set="st-setup">${icon('tavern')}连接设置…</button></div><div class="fhint">通过酒馆助手脚本“rwkit 安装桥”，把离线包交给 SillyTavern 里的创意工坊安装。</div></div>
     <div class="set-sec"><h4>关于</h4><div class="kv">
@@ -853,7 +910,16 @@ function settingsFlow() {
     if (a.dataset.set === 'st-setup') { m.close(); setupFlow(); }
     if (a.dataset.set === 'up-check') { m.close(); updateFlow(); }
     if (a.dataset.set === 'ws-login') { m.close(); loginFlow(); }
+    if (a.dataset.set === 'ai') { m.close(); aiSettingsFlow(); }
+    if (a.dataset.set === 'sim-reset') {
+      const v = await ask({ title: '清空模拟酒馆的数据？', html: '<p>导入的角色卡、聊天记录、世界书与设置都会删除（模拟酒馆会关闭），你自己的 SillyTavern 不受影响。</p>', buttons: [{ label: '取消', value: null }, { label: '清空', value: 'ok', danger: true }] });
+      if (v === 'ok') { const r = await api('sim.reset'); toast(r.ok === false ? r.error : '已清空模拟酒馆的数据', r.ok === false ? 'error' : 'ok'); }
+    }
   });
+}
+async function simOpen(path) {
+  const r = await api('sim.open', { project: path });
+  if (r.ok === false) toast(r.error, 'error', 6000);
 }
 function helpFlow() {
   modal({ cls: 'mid', title: '使用说明', body: `
@@ -865,6 +931,15 @@ function helpFlow() {
     <li>正则自带测试区：粘贴一段聊天文字，实时显示匹配位置与替换结果；HTML 页面可以直接预览。</li>
     <li>脚本保存前会检查语法，出错时点提示跳到对应行。</li>
     <li>“检查结果”里的每条提示都可以点“去修改”，直接跳到对应的条目。</li></ul>
+    <h4>模拟酒馆</h4>
+    <ul><li>作品页右上角的“模拟预览”打开模拟酒馆：随 rwkit 附带的官方 SillyTavern 前端与酒馆助手，数据与你自己的酒馆分开。</li>
+    <li>先在模拟酒馆里导入并打开轮回战场角色卡（允许它的脚本），再在右侧面板点“安装到模拟酒馆”。草稿也能安装，可以设为保存后自动重装。</li>
+    <li>面板里可以一键插入触发正则页面的消息、实时修改 MVU 与酒馆助手变量、查看页面的错误日志；选择 AI 帮写的接口后还能直接生成回复试玩。</li>
+    <li>也可以在面板顶部改用你自己正在运行的 SillyTavern（会直接改动它的数据）。</li></ul>
+    <h4>AI 帮写</h4>
+    <ul><li>在 设置 → AI 帮写 里添加接口：OpenAI、Google Gemini、Anthropic Claude，或任何 OpenAI 兼容接口（DeepSeek、OpenRouter、硅基流动、Ollama 等）。API key 用系统加密保存在本机。</li>
+    <li>编辑器里的“AI”按钮与简介、更新说明里的“AI”小按钮可以润色、代写、修改或审查；先选中一部分再点，只处理选中的文字。结果可以先修改、查看改动再写入。</li>
+    <li>“检查结果”页底部可以让 AI 审查整个作品。每种操作的提示词都可以在设置里修改。</li></ul>
     <h4>创意工坊（在线）</h4>
     <ul><li>左侧“创意工坊”可以浏览、搜索工坊作品，下载为 .rwpack 后直接在这里打开查看与修改。下载不会执行其中的脚本。</li>
     <li>用 Discord 登录后，可以把本地项目发布到工坊、为自己的作品上传新版本、提交审核、更换封面、下架或删除。首次发布需要审核；已通过审核的作品，之后上传的新版本会立即发布。</li>
@@ -882,7 +957,8 @@ function helpFlow() {
     <table class="tbl"><tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>保存当前编辑的条目 / 项目资料</td></tr><tr><td><kbd>Ctrl</kbd>+<kbd>O</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd></td><td>打开离线包 / 项目文件夹</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>N</kbd></td><td>新建项目</td></tr><tr><td><kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>5</kbd></td><td>切换页签</td></tr><tr><td><kbd>Ctrl</kbd>+<kbd>B</kbd></td><td>显示 / 隐藏项目列表</td></tr><tr><td><kbd>F5</kbd></td><td>重新检查当前版本</td></tr></table>
     <h4>工坊的限制</h4>
-    <p>离线包不超过 6 MB；artifact 最多 32 个；单个世界书最多 500 条；依赖最多 12 个；原版资源规则最多 300 条。</p>`, foot: '<div class="spacer"></div><button class="btn primary" data-m="close">知道了</button>' });
+    <p>离线包不超过 6 MB；artifact 最多 32 个；单个世界书最多 500 条；依赖最多 12 个；原版资源规则最多 300 条。</p>
+    <p>发布到创意工坊时另有限制：名称 80 字、简介 2000 字、更新说明 2000 字；标签最多 12 个、每个 24 字；artifact 名称 100 字；每个正则 artifact 最多 200 条、脚本最多 100 个（文件夹不能嵌套）；原版冲突声明 100 条；上传内容 4 MB；封面必填，PNG / JPEG / WebP 且不超过 3 MB。超出时“检查结果”里会有提示。</p>`, foot: '<div class="spacer"></div><button class="btn primary" data-m="close">知道了</button>' });
 }
 
 // ---------- 编写教程（docs/扩展编写教程.md，构建时放进 vendor/） ----------
@@ -962,6 +1038,9 @@ document.addEventListener('click', async e => {
     case 'help': menu(t, [{ label: '扩展编写教程', icon: 'book', kbd: 'F1', hint: '世界书、正则、脚本、预设、数据等全部内容的写法', onClick: () => tutorialFlow() }, { label: '使用说明', icon: 'help', onClick: helpFlow }, '-', { label: '检查更新…', icon: 'arrowUp', hint: '当前版本 v' + (S.app?.version || ''), onClick: () => updateFlow() }], { align: 'right', width: 300 }); break;
     case 'tutorial': tutorialFlow(t.dataset.sec); break;
     case 'settings': settingsFlow(); break;
+    case 'sim': simOpen(t.dataset.path); break;
+    case 'ai-review': aiReviewFlow(t.dataset.path); break;
+    case 'ai-settings': aiSettingsFlow(); break;
     case 'select': select(t.dataset.id); break;
     case 'select-loose': S.view = 'project'; S.sel = t.dataset.path; render(); break;
     case 'remove-loose': applyView(await api('remove', { path: t.dataset.path })); S.sel = null; render(); break;
@@ -1049,7 +1128,10 @@ document.addEventListener('change', e => {
   const t = e.target;
   if (t.dataset.act === 'base') { const s = curSrc(); const o = S.cmpOpts?.[Number(t.value)]; if (s && o) { S.base[s.path] = { path: o.path, saved: !!o.saved }; renderBody(curProject(), s); } }
 });
-document.addEventListener('input', e => { workshopInput(e); });
+document.addEventListener('input', e => {
+  workshopInput(e);
+  const t = e.target; if (t.dataset?.max) { const c = t.parentElement?.querySelector('[data-cnt]'); if (c) { const n = t.value.trim().length, m = Number(t.dataset.max); c.textContent = n + ' / ' + m; c.classList.toggle('over', n > m); } }
+});
 document.addEventListener('input', debounce(e => {
   if (e.target.id === 'navq') { S.navq = e.target.value; const s = curSrc(); if (s) renderNav(s); }
 }, 120));
@@ -1092,6 +1174,7 @@ host.on(async (type, data) => {
   if (type === 'workshop') onWorkshopEvent(data);
   if (type === 'tavern') onTavernEvent(data);
   if (type === 'update') onUpdateEvent(data);
+  if (type === 'ai') onAIEvent(data);
   if (type === 'opened') {
     await refresh();
     if (data?.select) { if (await confirmLeaveEditor()) { S.view = 'project'; S.sel = data.select; if (data.path) S.src[data.select] = data.path; teardownEditor(); S.pf = null; S.tab = 'overview'; render(); } }
@@ -1111,6 +1194,7 @@ async function init() {
   try {
     const [st, appInfo, pending] = await Promise.all([api('state'), api('appInfo'), api('pending')]);
     S.env = st; S.app = appInfo; S.settings = st.settings || {};
+    api('sim.available').then(v => { S.sim = v; }).catch(() => {});
     applyView(st);
     if (pending?.select) { S.sel = pending.select; if (pending.path) S.src[pending.select] = pending.path; }
     for (const x of pending?.errors || []) toast(x.message, 'warn', 6000);
@@ -1118,6 +1202,7 @@ async function init() {
     const ctx = { S, api, apiOk, render, renderSide, renderMain, allSrc, curSrc, curProject, findByPath, pick, applyView, busy, select: id => select(id) };
     initTavern(ctx).then(render);
     initUpdates(ctx);
+    initAI(ctx);
     initWorkshop(ctx).then(render);
   } catch (e) {
     $('#main').innerHTML = `<div class="welcome"><h1>启动失败</h1><p>${esc(e.message)}</p></div>`;

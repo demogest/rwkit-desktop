@@ -762,6 +762,76 @@ body.side-collapsed .side-foot .dot[data-act] { cursor: pointer; margin-top: 6px
 .up-prog { padding: 10px 2px; }
 .up-foot { display: flex; align-items: center; gap: 8px; flex: 1; flex-wrap: wrap; }
 
+/* ---------- 字数上限 ---------- */
+.cnt-wrap { position: relative; }
+.cnt { position: absolute; right: 8px; bottom: 6px; font-size: 11px; color: var(--muted); background: var(--panel); padding: 0 4px; border-radius: 4px; pointer-events: none; font-variant-numeric: tabular-nums; }
+.cnt.over { color: var(--err); font-weight: 600; }
+input.input + .cnt { bottom: 50%; transform: translateY(50%); }
+.cnt-wrap > input.input { padding-right: 72px; }
+.cnt-wrap > textarea.input { padding-bottom: 20px; }
+/* 编辑器自成层叠上下文：CodeMirror 的查找面板、行号栏、提示框不会盖过弹窗与菜单 */
+.cm-editor { isolation: isolate; }
+
 /* ---------- 窄窗口 ---------- */
 @media (max-width: 1280px) { .ov-grid { grid-template-columns: minmax(0, 1fr) 300px; } .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .editor-wrap { grid-template-columns: 290px minmax(0, 1fr); } }
 @media (max-width: 1120px) { .doc-wrap { grid-template-columns: 1fr; } .doc-toc { display: none; } .ov-grid { grid-template-columns: 1fr; } .wsteps { grid-template-columns: repeat(2, 1fr); } .ph-sub { display: none; } .test-out { grid-template-columns: 1fr; } }
+
+/* AI 帮写 */
+.ai-modal { width: min(940px, 100%); }
+.ai-modal .modal-t, .ai-set .modal-t { display: flex; align-items: center; gap: 8px; }
+.ai-modal .modal-t .i, .ai-set .modal-t .i { color: var(--accent); margin-right: 0; }
+.ai-where { font-weight: 400; font-size: 13px; color: var(--muted); max-width: 60%; }
+.ai-modal .modal-b, .ai-set .modal-b { display: flex; flex-direction: column; }
+.ai-body { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+.ai-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ai-top .seg button { display: inline-flex; align-items: center; gap: 5px; }
+.ai-top > .muted { min-width: 0; }
+.ai-prof { max-width: 280px; height: 30px; padding-top: 0; padding-bottom: 0; }
+.ai-scope { display: flex; align-items: center; gap: 8px; }
+.seg.sm button { padding: 3px 10px; font-size: 12px; }
+.ai-instr { display: flex; gap: 10px; align-items: flex-end; }
+.ai-instr textarea { flex: 1; resize: vertical; min-height: 56px; }
+.ai-run { display: flex; flex-direction: column; gap: 6px; }
+.ai-run kbd { margin-left: 6px; }
+.ai-status { min-height: 18px; display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.warnt { color: var(--warn); font-size: 12px; }
+.ai-out-wrap { flex: 1; min-height: 200px; display: flex; flex-direction: column; gap: 6px; }
+.ai-out-wrap[hidden] { display: none; }
+.ai-out-h { display: flex; align-items: center; gap: 8px; }
+.ai-out { flex: 1; resize: none; font-size: 12.5px; line-height: 1.6; min-height: 180px; }
+.ai-out[hidden], .ai-diff[hidden] { display: none; }
+.ai-diff { flex: 1; max-height: none; border: 1px solid var(--border); border-radius: 8px; }
+.ai-md { flex: 1; min-height: 180px; border: 1px solid var(--border); border-radius: 8px; padding: 14px 20px 20px; font-size: 13.5px; }
+.ai-md h2 { font-size: 16px; margin: 18px 0 8px; }
+.ai-md h3 { font-size: 14.5px; margin: 14px 0 6px; }
+.ai-foot { display: flex; gap: 8px; align-items: center; flex: 1; }
+.banner.sm { padding: 10px 12px; border-radius: 10px; }
+.banner.sm > .i { width: 18px; height: 18px; }
+/* 输入框里的 AI 小按钮：放在字数统计左边的空白处 */
+.ai-in { position: absolute; left: 6px; bottom: 4px; display: inline-flex; align-items: center; gap: 3px; height: 18px; padding: 0 6px; border: 0; border-radius: 5px; background: var(--panel); box-shadow: inset 0 0 0 1px var(--accent-line); color: var(--accent); font-size: 11px; font-weight: 600; cursor: pointer; opacity: .85; }
+.ai-in:hover, .ai-in:focus-visible { opacity: 1; background: var(--accent-weak); }
+.ai-in .i { width: 11px; height: 11px; }
+/* 检查结果里的 AI 审查 */
+.ai-card { display: flex; gap: 12px; align-items: center; padding: 13px 15px; border-radius: 12px; border: 1px dashed var(--accent-line); background: var(--accent-weak); margin-top: 14px; }
+.ai-card > .i { width: 22px; height: 22px; color: var(--accent); flex: none; }
+.ai-card .bb { flex: 1; min-width: 0; }
+.ai-card .bt { font-weight: 650; font-size: 14px; color: var(--text); }
+.ai-card .bs { font-size: 13px; color: var(--text2); margin-top: 2px; }
+/* AI 帮写设置 */
+.ai-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.ai-api { display: grid; grid-template-columns: 220px 1fr; gap: 20px; align-items: start; }
+.ai-plist { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; }
+.ai-pl { display: flex; align-items: center; gap: 9px; text-align: left; padding: 8px 10px; border: 1px solid transparent; border-radius: 9px; background: none; cursor: pointer; color: var(--text); min-width: 0; }
+.ai-pl:hover { background: var(--hover); }
+.ai-pl.on { background: var(--accent-weak); border-color: var(--accent-line); }
+.ai-pl b { display: block; font-size: 13px; font-weight: 600; }
+.ai-pl small { display: block; font-size: 11.5px; color: var(--muted); }
+.ai-dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--border2); flex: none; }
+.ai-dot.on { background: var(--accent); border-color: var(--accent); }
+.ai-pform .banner { margin-top: 14px; }
+.ai-pform .chk.small { margin-top: 6px; padding: 3px 9px; font-size: 12px; }
+.ai-pf-acts { margin-top: 14px; }
+.ai-prompts { display: flex; flex-direction: column; gap: 8px; }
+.ai-prompts .row { align-items: center; }
+.ai-prompts textarea { resize: vertical; font-size: 12.5px; line-height: 1.55; }
+.ai-vars code { font-size: 11.5px; padding: 1px 5px; border-radius: 4px; background: var(--sunken); color: var(--text); }

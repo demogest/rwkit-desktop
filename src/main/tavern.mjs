@@ -98,11 +98,12 @@ export function cancelJob(id) {
 }
 
 // 把本地项目做成工坊可以导入的离线包文本（重算清单，草稿与有错误的项目不行）
-export function packText(p) {
+// allowDraft：模拟酒馆可以直接安装还没保存为新版本的草稿
+export function packText(p, { allowDraft = false } = {}) {
   const R = core.rwkitModule();
   if (!R) fail('rwkit.mjs 不可用');
   const s = core.sourcePack(p);
-  if (s.draft) fail('这个离线包有未保存的修改，请先保存为新版本，再安装到 SillyTavern');
+  if (s.draft && !allowDraft) fail('这个离线包有未保存的修改，请先保存为新版本，再安装到 SillyTavern');
   if (s.info?.fatal) fail('本地项目读取出错，修正后才能安装：' + s.info.fatal);
   if (s.info?.errors?.length) fail(`本地项目有 ${s.info.errors.length} 个会让工坊安装失败的问题，修正后才能安装（见“检查结果”）`);
   const pack = s.pack;

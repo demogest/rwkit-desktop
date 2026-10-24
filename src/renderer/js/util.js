@@ -16,7 +16,16 @@ export const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t);
 
 export const KIND = { worldbook: '世界书', regex: '正则', script: '脚本', preset: '预设', data: '数据' };
 export const KIND_ICON = { worldbook: 'book', regex: 'regex', script: 'fileCode', preset: 'sliders', data: 'database' };
-export const CAT = { extension: '扩展', character: '角色包' };
+export const CAT = { extension: '扩展', character: '角色', store_catalog: '开局商店' };
+// 工坊的三种分类（扩展 / 角色 / 开局商店）与角色的用途；开局商店在服务器上属于 extension，由内容里的开局商店目录决定
+export const KIND_LABEL = { extension: '扩展', store_catalog: '开局商店', world_character: '世界书角色', opening_character: '开局角色', opening_partner: '开局伙伴', heretic: '异端' };
+export const displayCat = (category, kind) => (category === 'character' ? 'character' : kind === 'store_catalog' ? 'store_catalog' : 'extension');
+export function catLabel(category, kind) {
+  const d = displayCat(category, kind);
+  return d === 'character' ? '角色' + (kind && kind !== 'world_character' && KIND_LABEL[kind] ? ' · ' + KIND_LABEL[kind] : '') : CAT[d];
+}
+// 字数上限：输入框带 data-max，旁边的计数随输入更新（见 app.js）
+export const counter = (v, max) => { const n = String(v ?? '').trim().length; return `<span class="cnt${n > max ? ' over' : ''}" data-cnt data-max-of="${max}">${n} / ${max}</span>`; };
 export const LV = { ok: { t: '正常', i: 'checkCircle' }, warn: { t: '有提示', i: 'alert' }, fix: { t: '需修复', i: 'wrench' }, error: { t: '有错误', i: 'xCircle' } };
 export const POS = { 0: '角色定义之前', 1: '角色定义之后', 2: '作者注释之前', 3: '作者注释之后', 4: '按深度插入', 5: '示例消息之前', 6: '示例消息之后', 7: '出口（outlet）' };
 export const ROLE = { 0: '系统', 1: '用户', 2: 'AI' };

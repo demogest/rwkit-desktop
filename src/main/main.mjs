@@ -1,5 +1,5 @@
 // rwkit 桌面版主进程：窗口、IPC、系统对话框、单实例与 .rwpack 文件关联
-import { app, BrowserWindow, ipcMain, dialog, shell, protocol, nativeTheme, Menu, screen, session, safeStorage, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, protocol, nativeTheme, Menu, screen, session, safeStorage, nativeImage, net } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
@@ -9,6 +9,8 @@ import * as core from './core.mjs';
 import * as workshop from './workshop.mjs';
 import * as tavern from './tavern.mjs';
 import * as updater from './updater.mjs';
+import * as ai from './ai.mjs';
+import * as sim from './sim.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..', '..');
@@ -21,7 +23,11 @@ const AUTOTEST = !app.isPackaged && process.env.RWKIT_AUTOTEST;
 if (!app.isPackaged && process.env.RWKIT_USERDATA) app.setPath('userData', process.env.RWKIT_USERDATA);
 if (AUTOTEST) for (const s of ['disable-renderer-backgrounding', 'disable-background-timer-throttling', 'disable-backgrounding-occluded-windows']) app.commandLine.appendSwitch(s);
 app.setAppUserModelId('com.rwkit.desktop');
-protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+  // 模拟酒馆：SillyTavern 前端当作一个普通网站运行（只在它自己的会话里注册）
+  { scheme: 'rwsim', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } },
+]);
 
 const LOG_FILE = path.join(app.getPath('userData'), 'main.log');
 // 开发时同时输出到控制台；控制台管道关闭后（EPIPE）不再写，避免“写失败 → 记录异常 → 再写失败”的循环
@@ -123,6 +129,29 @@ async function start() {
   });
   // 安装到 SillyTavern 的本机桥接服务（启用后才监听 127.0.0.1）
   tavern.init({ dataDir: app.getPath('userData'), log, emit: send });
+  // AI 帮写：请求走 Chromium 网络栈（跟随系统代理），API key 同样用系统加密保存
+  ai.init({
+    dataDir: app.getPath('userData'),
+    encrypt: canSeal ? t => safeStorage.encryptString(t).toString('base64') : null,
+    decrypt: canSeal ? b => safeStorage.decryptString(Buffer.from(b, 'base64')) : null,
+    fetch: (u, o) => net.fetch(u instanceof URL ? u.href : u, o),
+    log, emit: send,
+  });
+  // 模拟酒馆：运行文件随程序附带（开发时在 vendor/sim，由 scripts/vendor-sim.mjs 准备）
+  sim.init({
+    vendorDir: app.isPackaged ? path.join(process.resourcesPath, 'sim') : path.join(ROOT, 'vendor', 'sim'),
+    dataDir: path.join(app.getPath('userData'), 'sim'),
+    preload: path.join(HERE, 'preload.cjs'),
+    panelUrl: 'app://ui/sim.html',
+    state: () => core.getState().sim || {},
+    saveState: patch => { const st = core.getState(); st.sim = { ...(st.sim || {}), ...patch }; core.saveState(); },
+    packText: (p, opts) => tavern.packText(p, opts),
+    sourcePack: p => core.sourcePack(p),
+    sourceSig: p => core.sourceSig(p),
+    ai: { chat: o => ai.chat(o), profiles: () => ai.profiles() },
+    dev: !!AUTOTEST,
+    log,
+  });
   // 检查更新：安装版下载到临时文件夹后运行安装程序；免安装版把新版本放在当前 exe 旁边
   const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
   updater.init({
@@ -178,6 +207,8 @@ async function start() {
   });
 
   ipcMain.handle('api', async (e, route, body = {}) => {
+    // 模拟酒馆的控制面板只能使用 sim.* 接口
+    if (sim.isPanel(e.sender)) return String(route).startsWith('sim.') ? sim.handle(route, body) : { ok: false, error: '拒绝访问' };
     if (!win || e.sender !== win.webContents) return { ok: false, error: '拒绝访问' };
     try { return await hostRoute(route, body); } catch (err) { log(err.stack || String(err)); return { ok: false, error: String(err.message || err) }; }
   });
@@ -246,6 +277,8 @@ async function hostRoute(route, body) {
       return { ok: true, path: r.filePath };
     }
     default:
+      if (route.startsWith('ai.')) return ai.handle(route, body);
+      if (route.startsWith('sim.')) { await core.ensureRwkit(); return sim.handle(route, body); }
       if (route.startsWith('up.')) return updater.handle(route, body);
       if (route.startsWith('st.')) { await core.ensureRwkit(); return tavern.handle(route, body); }
       if (route.startsWith('ws.')) { await core.ensureRwkit(); return workshop.handle(route, body); }

@@ -1,7 +1,7 @@
 {
   "name": "rwkit-desktop",
   "productName": "rwkit 离线包工具",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "轮回战场创意工坊离线包（.rwpack）的检查、修复、编辑、解包与打包工具",
   "author": "Demogest",
   "license": "MIT",
@@ -26,7 +26,8 @@
     "sync-rwkit": "node scripts/sync-rwkit.mjs",
     "test": "node --test \"test/*.test.mjs\"",
     "dist": "npm run build && electron-builder --win nsis portable",
-    "dist:dir": "npm run build && electron-builder --win dir"
+    "dist:dir": "npm run build && electron-builder --win dir",
+    "vendor:sim": "node scripts/vendor-sim.mjs"
   },
   "build": {
     "appId": "com.rwkit.desktop",
@@ -46,6 +47,10 @@
       {
         "from": "resources/rwkit.mjs",
         "to": "rwkit.mjs"
+      },
+      {
+        "from": "vendor/sim",
+        "to": "sim"
       }
     ],
     "asar": true,
@@ -106,5 +111,8 @@
     "electron-builder": "26.15.3",
     "esbuild": "0.28.2",
     "marked": "18.0.14"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.133.0"
   }
 }

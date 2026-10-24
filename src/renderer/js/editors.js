@@ -144,6 +144,7 @@ function entryHtml(ed, ctx) {
     </section>
     <section class="ed-sec code">
       <h4>${icon('file', 'xs')}正文 <span class="muted small" data-live="chars"></span><span class="grow"></span>
+        <button class="btn xs ghost" data-ed="ai" title="AI 帮写：润色、代写、修改、审查（先选中一部分则只处理选中的）">${icon('sparkles')}AI</button>
         <button class="btn xs ghost" data-ed="find" title="查找与替换（Ctrl+F）">${icon('search')}查找</button>
         <label class="toggle sm"><input type="checkbox" data-ed-wrap="content" checked><span class="sw"></span>自动换行</label></h4>
       <div class="cm-host" data-cm="content" data-lang="worldbook" data-autoh="220,560" data-hint="在这里写条目正文。支持 EJS（&lt;% %&gt;）与酒馆宏（{{user}} 等）。"></div>
@@ -194,6 +195,7 @@ function regexHtml(ed, ctx) {
     <section class="ed-sec code">
       <h4>${icon('pencil', 'xs')}替换为 <span class="pill acc sm" data-live="pagebadge" ${page ? '' : 'hidden'}>HTML 页面</span><span class="muted small" data-live="chars"></span><span class="grow"></span>
         <button class="btn xs" data-ed="preview" ${page ? '' : 'hidden'}>${icon('eye')}预览页面</button>
+        <button class="btn xs ghost" data-ed="ai" title="AI 帮写：润色、代写、修改、审查（先选中一部分则只处理选中的）">${icon('sparkles')}AI</button>
         <button class="btn xs ghost" data-ed="find" title="查找与替换（Ctrl+F）">${icon('search')}查找</button>
         <label class="toggle sm"><input type="checkbox" data-ed-wrap="replaceString" checked><span class="sw"></span>自动换行</label></h4>
       <div class="cm-host" data-cm="replaceString" data-autoh="110,460" data-lang="${page ? 'html' : 'text'}" data-hint="匹配到的文字会被替换成这里的内容；留空表示删除匹配内容。整段写成 \`\`\`html … \`\`\` 时会渲染成页面。"></div>
@@ -223,7 +225,7 @@ function scriptHtml(ed, ctx) {
   const f = ed.form;
   if (ed.type === 'scriptText') {
     return head(ed, ctx, null, '', moreBtn(ed, ctx)) + `<div class="ed-body" data-scroll>${warnsHtml(ctx)}
-      <section class="ed-sec code tall"><h4>${icon('fileCode', 'xs')}脚本正文<span class="grow"></span><span class="syntax" data-live="syntax"></span><button class="btn xs ghost" data-ed="find">${icon('search')}查找</button></h4>
+      <section class="ed-sec code tall"><h4>${icon('fileCode', 'xs')}脚本正文<span class="grow"></span><span class="syntax" data-live="syntax"></span><button class="btn xs ghost" data-ed="ai" title="AI 帮写：润色、代写、修改、审查（先选中一部分则只处理选中的）">${icon('sparkles')}AI</button><button class="btn xs ghost" data-ed="find">${icon('search')}查找</button></h4>
       <div class="cm-host" data-cm="text" data-lang="js" data-nowrap></div></section></div>`;
   }
   const btns = f.button?.buttons || [];
@@ -238,7 +240,7 @@ function scriptHtml(ed, ctx) {
         <div class="fhint">脚本里用 eventOn(getButtonEvent('按钮名称'), 回调) 响应点击，按钮名称要与这里一致。</div></div></div>
     </section>
     <section class="ed-sec code tall">
-      <h4>${icon('fileCode', 'xs')}脚本正文<span class="grow"></span><span class="syntax" data-live="syntax"></span><button class="btn xs ghost" data-ed="find">${icon('search')}查找</button></h4>
+      <h4>${icon('fileCode', 'xs')}脚本正文<span class="grow"></span><span class="syntax" data-live="syntax"></span><button class="btn xs ghost" data-ed="ai" title="AI 帮写：润色、代写、修改、审查（先选中一部分则只处理选中的）">${icon('sparkles')}AI</button><button class="btn xs ghost" data-ed="find">${icon('search')}查找</button></h4>
       <div class="cm-host" data-cm="content" data-lang="js" data-nowrap></div>
     </section>
     <details class="ed-sec adv"><summary>${icon('sliders', 'xs')}其他字段</summary>
@@ -251,7 +253,7 @@ function scriptHtml(ed, ctx) {
 // ---------- 预设、数据等整体内容 ----------
 function rawHtml(ed, ctx) {
   return head(ed, ctx, null, '', moreBtn(ed, ctx)) + `<div class="ed-body" data-scroll>${warnsHtml(ctx)}
-    <section class="ed-sec code tall"><h4>${icon('database', 'xs')}${ed.data.json ? '内容（JSON）' : '内容'}<span class="grow"></span><span class="syntax" data-live="jsonok"></span><button class="btn xs ghost" data-ed="find">${icon('search')}查找</button></h4>
+    <section class="ed-sec code tall"><h4>${icon('database', 'xs')}${ed.data.json ? '内容（JSON）' : '内容'}<span class="grow"></span><span class="syntax" data-live="jsonok"></span><button class="btn xs ghost" data-ed="ai" title="AI 帮写：润色、代写、修改、审查（先选中一部分则只处理选中的）">${icon('sparkles')}AI</button><button class="btn xs ghost" data-ed="find">${icon('search')}查找</button></h4>
     <div class="cm-host" data-cm="text" data-lang="${ed.data.json ? 'json' : 'text'}" data-nowrap></div></section></div>`;
 }
 
@@ -263,7 +265,7 @@ function artifactHtml(ed, ctx) {
     <section class="ed-sec">
       <div class="kv">
         <div class="k">类型</div><div class="v"><span class="kind ${d.kind}">${esc(KIND[d.kind] || d.kind)}</span> <span class="muted small">格式 ${esc(d.format)}</span></div>
-        <div class="k">包含</div><div class="v">${d.count} ${d.kind === 'worldbook' ? '条条目' : d.kind === 'regex' ? '条正则' : d.kind === 'script' ? '个脚本' : '项'}</div>
+        <div class="k">包含</div><div class="v">${d.count} ${d.kind === 'worldbook' ? '条条目' : d.kind === 'regex' ? '条正则' : d.kind === 'script' ? '个脚本' : '项'} <button class="btn xs ghost" data-ed="ai-review" title="让 AI 通读这个 artifact，找出问题并给出建议">${icon('sparkles')}AI 审查</button></div>
         ${d.folder ? `<div class="k">文件夹</div><div class="v mono small ell" title="${esc(d.folder)}">${esc(d.folder)}</div>` : ''}
       </div>
     </section>
@@ -447,6 +449,7 @@ export function bindEditor(root, ed, ctx) {
     if (!a) return;
     const act = a.dataset.ed;
     if (act === 'find') { const cm = cms.get('content') || cms.get('replaceString') || cms.get('text'); cm?.search(); return; }
+    if (act === 'ai') { const cm = cms.get('content') || cms.get('replaceString') || cms.get('text'); if (cm) ctx.ai?.(ed, cm); return; }
     ctx.action(act, a);
   });
   refresh();

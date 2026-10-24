@@ -7,6 +7,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import vm from 'node:vm';
 import { execFileSync, spawn } from 'node:child_process';
+import { LIMITS, publishIssues, contentKind, normTags, storeCatalogTemplate } from './limits.mjs';
 
 const IS_WIN = process.platform === 'win32';
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -83,6 +84,7 @@ function loadState() {
     if (Array.isArray(s.hidden)) state.hidden = s.hidden.filter(x => typeof x === 'string');
     if (isObj(s.settings)) Object.assign(state.settings, s.settings);
     if (isObj(s.window)) state.window = s.window;
+    if (isObj(s.sim)) state.sim = s.sim;
     if (typeof s.lastDir === 'string') state.lastDir = s.lastDir;
   } catch {}
 }
@@ -176,6 +178,15 @@ function levelOf(i) {
   if (i.warns?.length) return 'warn';
   return 'ok';
 }
+// 发布到工坊的限制：作为“提示”放进检查结果（离线包导入不受影响）
+function coverMeta(pack) {
+  const m = /^data:([\w/+.-]+);base64,/.exec(String(pack?.project?.cover_url || ''));
+  if (!m) return null;
+  const b64 = pack.project.cover_url.length - m[0].length;
+  return { type: m[1], size: Math.floor(b64 * 3 / 4) };
+}
+const workshopWarns = (pack, ctx) => annotate(publishIssues(pack, { cover: coverMeta(pack) }), pack, ctx);
+const withKind = (brief, pack) => (brief ? { ...brief, kind: contentKind(pack).kind } : brief);
 // 在内存里按打包流程检查一个离线包对象（不写文件）
 function checkPackObject(pack0, ctx) {
   const out = { notes: [], errors: [], warns: [], fatal: null, bytes: 0 };
@@ -189,7 +200,7 @@ function checkPackObject(pack0, ctx) {
     const warns = R.lint(pack);
     out.bytes = Buffer.byteLength(JSON.stringify(pack), 'utf8');
     if (out.bytes > R.MAX_OFFLINE_BYTES) errors.push('离线包超过 6 MB，工坊无法导入（当前 ' + (out.bytes / 1048576).toFixed(2) + ' MB）');
-    out.errors = annotate(errors, pack0, ctx); out.warns = annotate(warns, pack0, ctx);
+    out.errors = annotate(errors, pack0, ctx); out.warns = [...annotate(warns, pack0, ctx), ...workshopWarns(pack0, ctx)];
   } catch (e) { out.fatal = errText(e); }
   return out;
 }
@@ -202,7 +213,7 @@ function packInfo(file) {
     const info = { kind: 'pack', path: file, file: path.basename(file), dir: path.dirname(file), size: st.size, mtime: st.mtimeMs, sig, notes: [], errors: [], warns: [] };
     let pack = null;
     try { pack = R.loadPack(file, []); } catch (e) { info.fatal = errText(e); }
-    info.project = pack ? brief(pack.project) : peekPack(file);
+    info.project = pack ? withKind(brief(pack.project), pack) : peekPack(file);
     if (pack) {
       remember(k, { sig: fileSig(st), pack, dir: null, folders: null });
       info.digest = digestPack(pack);
@@ -210,14 +221,14 @@ function packInfo(file) {
       try {
         const r = R.fixFile(file, { check: true, backup: false });
         info.notes = r.notes; info.needFix = r.needWrite; info.bytes = r.bytes;
-        info.errors = annotate(r.errors, pack, null); info.warns = annotate(r.warns, pack, null);
+        info.errors = annotate(r.errors, pack, null); info.warns = [...annotate(r.warns, pack, null), ...workshopWarns(pack, null)];
       } catch (e) { info.fatal = errText(e); }
     }
     if (d) {
       // 有未保存的修改：检查结果以草稿为准
       const c = checkPackObject(d.pack, null);
       Object.assign(info, { fatal: c.fatal, errors: c.errors, warns: c.warns, notes: [], needFix: false, bytes: c.bytes });
-      info.project = brief(d.pack.project);
+      info.project = withKind(brief(d.pack.project), d.pack);
       info.digest = digestPack(d.pack);
       info.artifactCount = d.pack.bundle?.artifacts?.length || 0;
       info.draft = { count: d.count, undo: d.history.length };
@@ -240,7 +251,7 @@ function folderInfo(dir) {
     }
     const { pack, folders } = built;
     info.folders = folders;
-    info.project = brief(pack.project);
+    info.project = withKind(brief(pack.project), pack);
     info.digest = digestPack(pack);
     info.artifactCount = pack.bundle.artifacts?.length || 0;
     remember(k, { sig: ds.key, pack: clone(pack), dir, folders });
@@ -253,7 +264,7 @@ function folderInfo(dir) {
       info.bytes = Buffer.byteLength(JSON.stringify(pack), 'utf8');
       if (info.bytes > R.MAX_OFFLINE_BYTES) errors.push('离线包超过 6 MB，工坊无法导入（当前 ' + (info.bytes / 1048576).toFixed(2) + ' MB）');
       const ctx = { dir, folders };
-      info.errors = annotate(errors, pack, ctx); info.warns = annotate(warns, pack, ctx);
+      info.errors = annotate(errors, pack, ctx); info.warns = [...annotate(warns, pack, ctx), ...workshopWarns(pack, ctx)];
     } catch (e) { info.fatal = errText(e); info.loc = locateError(dir, info.fatal, folders, pack); }
     info.level = levelOf(info);
     return info;
@@ -510,7 +521,7 @@ export function view() {
     const pj = main.project || {};
     const coverSrc = [...folders, ...packs].find(x => x.project?.hasCover);
     list.push({
-      id: p.id, at: p.at, name: pj.name ?? '（未命名）', category: pj.category, version: pj.version, summary: pj.summary || '', tags: pj.tags || [], dependencies: pj.dependencies || [],
+      id: p.id, at: p.at, name: pj.name ?? '（未命名）', category: pj.category, kind: pj.kind || (pj.category === 'character' ? 'world_character' : 'extension'), version: pj.version, summary: pj.summary || '', tags: pj.tags || [], dependencies: pj.dependencies || [],
       cover: coverSrc ? { path: coverSrc.path, v: coverSrc.sig } : null,
       folders: folders.map(f => folderView(f, packs, newest)),
       packs: packs.map(x => ({ ...strip(x), version: x.project?.version })),
@@ -579,7 +590,7 @@ function artifactDetail(p, ai) {
 function projectDetail(p) {
   const src = getSource(p), pj = src.pack.project || {};
   const { cover_url, ...rest } = pj;
-  return { project: rest, hasCover: !!cover_url, overrides: src.pack.bundle?.resource_overrides || [], sig: src.sig, isFolder: !!src.dir, draft: !!src.draft };
+  return { project: rest, kind: contentKind(src.pack).kind, hasStore: src.pack.bundle?.artifacts?.some(a => a?.kind === 'data' && contentKind({ project: { category: 'extension' }, bundle: { artifacts: [a] } }).kind === 'store_catalog') || false, cover: coverMeta(src.pack), hasCover: !!cover_url, overrides: src.pack.bundle?.resource_overrides || [], sig: src.sig, isFolder: !!src.dir, draft: !!src.draft };
 }
 
 // ---------- 两个版本的差异 ----------
@@ -670,13 +681,20 @@ function checkScript(s) {
 }
 function checkProjectFields(f) {
   if ('name' in f && (typeof f.name !== 'string' || !f.name.trim())) fail('项目名称不能为空');
-  if ('category' in f && !['extension', 'character'].includes(f.category)) fail('分类只能是扩展或角色包');
+  if ('name' in f && String(f.name).trim().length > LIMITS.name) fail(`项目名称不能超过 ${LIMITS.name} 个字（创意工坊的上限）`);
+  if ('summary' in f && String(f.summary ?? '').trim().length > LIMITS.summary) fail(`简介不能超过 ${LIMITS.summary} 个字（创意工坊的上限）`);
+  if ('category' in f && !['extension', 'character'].includes(f.category)) fail('分类只能是扩展或角色（开局商店属于扩展）');
   if ('version' in f && (!Number.isInteger(Number(f.version)) || Number(f.version) < 1)) fail('版本号必须是不小于 1 的整数');
   if ('dependencies' in f) {
     if (!Array.isArray(f.dependencies) || f.dependencies.length > 12) fail('依赖最多 12 个');
     for (const d of f.dependencies) if (!isObj(d) || !String(d.project_id || '').trim() || !Number.isInteger(Number(d.min_version)) || Number(d.min_version) < 1) fail('依赖需要填写项目 id 和不小于 1 的最低版本');
   }
   if ('tags' in f && (!Array.isArray(f.tags) || f.tags.some(t => typeof t !== 'string'))) fail('标签必须是文字列表');
+  if ('tags' in f) {
+    const t = normTags(f.tags);
+    if (t.length > LIMITS.tags) fail(`标签最多 ${LIMITS.tags} 个（创意工坊的上限）`);
+    const long = t.find(x => x.length > LIMITS.tag); if (long) fail(`标签「${long}」超过 ${LIMITS.tag} 个字（创意工坊的上限）`);
+  }
 }
 function applyProjectFields(project, f) {
   checkProjectFields(f);
@@ -713,7 +731,7 @@ function checkConflicts(list, kind) {
 }
 function applyArtifactMeta(a, meta) {
   const next = { ...a };
-  if ('name' in meta) { const n = String(meta.name || '').trim(); if (!n) fail('名称不能为空'); next.name = n; }
+  if ('name' in meta) { const n = String(meta.name || '').trim(); if (!n) fail('名称不能为空'); if (n.length > LIMITS.artifactName) fail('名称不能超过 ' + LIMITS.artifactName + ' 个字（创意工坊的上限）'); next.name = n; }
   if (a.kind === 'script' && 'scope' in meta) { if (!SCRIPT_SCOPES.includes(meta.scope)) fail('脚本作用域无效'); next.scope = meta.scope; }
   if ((a.kind === 'worldbook' || a.kind === 'script') && 'conflicts' in meta) {
     const c = meta.conflicts;
@@ -752,10 +770,13 @@ function newRegex(fields = {}) {
 function newScript(fields = {}) {
   return withDefaults({ type: 'script', enabled: true, name: '新脚本', id: crypto.randomUUID(), button: { enabled: true, buttons: [] }, data: {}, export_with: { data: true, button: true }, content: '// 新脚本\n', info: '' }, fields);
 }
-function newArtifact({ kind, name }) {
+function newArtifact({ kind, name, template }) {
   if (!KINDS.includes(kind)) fail('不支持的类型');
   let n = String(name || '').trim();
   if (!n) fail('名称不能为空');
+  if (n.length > LIMITS.artifactName) fail(`名称不能超过 ${LIMITS.artifactName} 个字（创意工坊的上限）`);
+  // 开局商店目录：与官方客户端生成的格式一致
+  if (kind === 'data' && template === 'store_catalog') return { kind, format: 'json', name: /\.json$/i.test(n) ? n : n + '.store.json', content: storeCatalogTemplate() };
   if (!/\.(json|txt|js)$/i.test(n)) n += '.json';
   if (kind === 'worldbook') return { kind, format: 'json', name: n, content: { entries: { 1: newEntry(1) } } };
   if (kind === 'regex') return { kind, format: 'json', name: n, content: newRegex({ scriptName: n.replace(/\.json$/i, ''), findRegex: '【' + n.replace(/\.json$/i, '') + '】' }) };
@@ -1187,10 +1208,13 @@ export async function edit(p, op) {
 
 // ---------- 新建项目 ----------
 function newProject({ dir, name, category = 'extension' }) {
+  const store = category === 'store_catalog';
+  if (store) category = 'extension';
   needEdit();
   if (!R.writeSource || !R.freeDir) fail('当前使用的 rwkit.mjs 版本不支持新建项目');
   const n = String(name || '').trim();
   if (!n) fail('项目名称不能为空');
+  if (n.length > LIMITS.name) fail(`项目名称不能超过 ${LIMITS.name} 个字（创意工坊的上限）`);
   if (!fs.existsSync(dir)) fail('找不到文件夹：' + dir);
   const pack = {
     format: R.OFFLINE_FORMAT || 'reincarnation-workshop-project', version: R.OFFLINE_VERSION || 1, exported_at: Date.now(),
@@ -1201,6 +1225,7 @@ function newProject({ dir, name, category = 'extension' }) {
   pack.bundle.artifacts[0].content.entries[1].comment = n + '·总纲';
   pack.bundle.artifacts[0].content.entries[1].constant = true;
   pack.bundle.artifacts[0].content.entries[1].content = '<' + n + '>\n在这里写常驻设定。\n</' + n + '>';
+  if (store) pack.bundle.artifacts.push({ kind: 'data', name: n + '.store.json', format: 'json', content: storeCatalogTemplate() });
   R.rebuildManifest(pack, []);
   const target = R.freeDir(path.join(dir, R.safeName(n, 60)), false);
   R.writeSource(pack, target);
@@ -1289,11 +1314,35 @@ function doAction(body) {
 // ---------- 给创意工坊模块用：rwkit 函数与本地项目的完整内容 ----------
 export const rwkitModule = () => (R && !rw.error ? R : null);
 export const isUserError = e => e instanceof UserError || isPackError(e);
+// 内容签名：内容（或草稿）变了才会变，读取很快
+export const sourceSig = p => getSource(p).sig;
 export function sourcePack(p) {
   if (!rwkitModule()) fail(rw.error || 'rwkit.mjs 不可用');
   const s = getSource(p);
   const info = fs.statSync(p).isDirectory() ? folderInfo(p) : packInfo(p);
   return { pack: clone(s.pack), draft: !!s.draft, info };
+}
+
+// 把整个作品（或其中一个 artifact）整理成便于阅读的文字，交给 AI 审查
+const KIND_NAME = { worldbook: '世界书', regex: '正则', script: '脚本', preset: '预设', data: '数据' };
+export function reviewText(p, only) {
+  const { pack } = sourcePack(p);
+  const pr = pack.project || {}, arts = pack.bundle?.artifacts || [];
+  const out = [`# 作品：${pr.name || '未命名'}（${pr.category === 'character' ? '角色' : contentKind(pack).kind === 'store_catalog' ? '开局商店' : '扩展'}）`];
+  if (pr.summary) out.push('简介：' + pr.summary);
+  if (pr.tags?.length) out.push('标签：' + pr.tags.join('、'));
+  arts.forEach((a, i) => {
+    if (only != null && i !== Number(only)) return;
+    out.push('', `## ${a.name}（${KIND_NAME[a.kind] || a.kind}）`);
+    for (const it of itemsOf(a)) {
+      const s = it.sum || {};
+      if (a.kind === 'worldbook') out.push('', `### 条目 ${it.uid ?? it.key}：${it.label || '（无标题）'}` + (s.disable ? ' [已禁用]' : '') + (s.constant ? ' [常驻]' : s.keys?.length ? ` [关键词：${s.keys.join('，')}]` : ' [没有关键词]'), it.text);
+      else if (a.kind === 'regex') out.push('', `### 正则：${it.label}` + (s.disabled ? ' [已禁用]' : ''), '查找：' + s.find, '替换为：', it.text);
+      else if (a.kind === 'script') out.push('', `### 脚本：${it.folder ? it.folder + '/' : ''}${it.label}` + (s.enabled ? '' : ' [已禁用]') + (s.buttons?.length ? ` [按钮：${s.buttons.join('，')}]` : ''), '```js', it.text, '```');
+      else out.push('', it.json ? '```json' : '', it.text, it.json ? '```' : '');
+    }
+  });
+  return { ok: true, text: out.join('\n'), project: (pr.name || '') + (pr.summary ? '：' + String(pr.summary).slice(0, 300) : '') };
 }
 
 // ---------- 打开、移除 ----------
@@ -1437,6 +1486,7 @@ export async function handle(route, body = {}) {
       case 'content': need(); return describe(abs(body.path));
       case 'detail': need(); return detail(abs(body.path), body.a, body.key);
       case 'artifact': need(); return artifactDetail(abs(body.path), body.a);
+      case 'aiText': need(); return reviewText(abs(body.path), body.a);
       case 'project': need(); return projectDetail(abs(body.path));
       case 'diff': need(); return diff(abs(body.a), abs(body.b), { aSaved: !!body.aSaved });
       case 'edit': {

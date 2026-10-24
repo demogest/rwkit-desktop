@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
+import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import * as core from '../src/main/core.mjs';
 import * as tavern from '../src/main/tavern.mjs';
@@ -45,7 +46,8 @@ function runBridge(content) {
   return () => listeners.pagehide?.();
 }
 const call = async (route, body) => tavern.handle(route, body);
-const port = 30000 + Math.floor(Math.random() * 20000);
+// 让系统挑一个空闲端口（Windows 会保留一些随机端口段，随便选可能被占用）
+const port = await new Promise(res => { const srv = net.createServer().listen(0, '127.0.0.1', () => { const p = srv.address().port; srv.close(() => res(p)); }); });
 
 let samplePack, stopBridge;
 test('准备：示例离线包、启动桥接服务、运行安装桥脚本', async () => {

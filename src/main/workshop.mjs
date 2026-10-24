@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import * as core from './core.mjs';
+import { publishIssues, contentKind, displayCategory, normTags, LIMITS as WL } from './limits.mjs';
 
 export const SERVERS = [
   { base: 'https://workshop.6661816.xyz', label: '正式服' },
@@ -264,15 +265,33 @@ function localSource(p) {
   const bundle = { schema_version: 1, artifacts: s.pack.bundle.artifacts };
   if (Array.isArray(s.pack.bundle.resource_overrides) && s.pack.bundle.resource_overrides.length) bundle.resource_overrides = s.pack.bundle.resource_overrides;
   const size = bytes(JSON.stringify(bundle));
-  return { project: s.pack.project, bundle, size, warns: s.info?.warns?.length || 0, cover: core.coverOf(p) };
+  const cover = core.coverOf(p);
+  const ck = contentKind(s.pack);
+  // 只算工坊会拒绝的问题，不重复计入一般提示
+  const issues = publishIssues(s.pack, { cover: cover ? { type: cover.type, size: cover.buf.length } : null });
+  return { project: s.pack.project, bundle, size, warns: Math.max(0, (s.info?.warns?.length || 0) - issues.length), cover, kind: ck.kind, display: displayCategory(s.pack.project.category, ck.kind), issues };
 }
+// 资料超出工坊上限时说明原因，不悄悄截断
+function checkMeta(m) {
+  const out = [];
+  if (!m.name) out.push('作品名称不能为空');
+  if (m.name.length > WL.name) out.push(`作品名称 ${m.name.length} 个字，超过工坊上限 ${WL.name} 个字`);
+  if (m.summary.length > WL.summary) out.push(`简介 ${m.summary.length} 个字，超过工坊上限 ${WL.summary} 个字`);
+  if (m.tags.length > WL.tags) out.push(`标签有 ${m.tags.length} 个，超过工坊上限 ${WL.tags} 个`);
+  const long = m.tags.filter(t => t.length > WL.tag);
+  if (long.length) out.push(`标签「${long.join('」「')}」超过工坊上限 ${WL.tag} 个字`);
+  if (m.dependencies.length > WL.deps) out.push(`依赖有 ${m.dependencies.length} 个，超过工坊上限 ${WL.deps} 个`);
+  if (out.length) fail(out.join('；'));
+  return m;
+}
+const failIssues = (src, what) => { if (src.issues.length) fail(`${what}前需要先改好：${src.issues.join('；')}`); };
 function metaOf(project) {
-  const tags = [...new Set((Array.isArray(project.tags) ? project.tags : []).map(t => String(t).normalize('NFKC').trim().toLocaleLowerCase()).filter(Boolean))];
   return {
-    name: String(project.name || '').trim().slice(0, LIMITS.name), summary: String(project.summary || '').trim().slice(0, LIMITS.summary),
+    name: String(project.name || '').trim(), summary: String(project.summary || '').trim(),
+    // 开局商店与扩展在服务器上都是 extension，由内容里的开局商店目录区分
     category: project.category === 'character' ? 'character' : 'extension',
-    tags: tags.filter(t => t.length <= LIMITS.tag).slice(0, LIMITS.tags),
-    dependencies: (Array.isArray(project.dependencies) ? project.dependencies : []).filter(d => String(d?.project_id || '').trim()).map(d => ({ project_id: String(d.project_id).trim(), min_version: Math.max(1, Number.parseInt(d.min_version, 10) || 1) })).slice(0, LIMITS.deps),
+    tags: normTags(project.tags),
+    dependencies: (Array.isArray(project.dependencies) ? project.dependencies : []).filter(d => String(d?.project_id || '').trim()).map(d => ({ project_id: String(d.project_id).trim(), min_version: Math.max(1, Number.parseInt(d.min_version, 10) || 1) })),
   };
 }
 // 本地项目与工坊作品的资料差异（名称、简介、分类、标签、依赖）
@@ -360,14 +379,20 @@ export async function handle(route, b = {}) {
         // 准备上传：本地项目的资料、大小与（若已关联）工坊上的差异
         const src = localSource(path.resolve(b.path));
         const meta = metaOf(src.project);
-        const out = { meta, size: src.size, limit: LIMITS.bundle, artifacts: src.bundle.artifacts.length, warns: src.warns, cover: src.cover ? { type: src.cover.type, size: src.cover.buf.length, ok: COVER_TYPES.has(src.cover.type) && src.cover.buf.length <= LIMITS.cover } : null, localId: src.project.id };
+        const out = { meta, kind: src.kind, display: src.display, issues: src.issues, limits: WL, size: src.size, limit: LIMITS.bundle, artifacts: src.bundle.artifacts.length, warns: src.warns, cover: src.cover ? { type: src.cover.type, size: src.cover.buf.length, ok: COVER_TYPES.has(src.cover.type) && src.cover.buf.length <= LIMITS.cover } : null, localId: src.project.id };
         if (b.id) { const e = await request(`/api/projects/${enc(b.id)}/edit`, { auth: true, timeout: 60000 }); out.remote = numify(e.project); out.diff = metaDiff(meta, e.project); }
         return out;
       }
       case 'ws.create': {
         const src = localSource(path.resolve(b.path));
-        const meta = { ...metaOf(src.project), ...(isObj(b.meta) ? metaOf({ ...src.project, ...b.meta }) : {}) };
-        if (!meta.name) fail('作品名称不能为空');
+        // 界面上选的分类：扩展 / 角色 / 开局商店（开局商店要有开局商店目录）
+        const want = isObj(b.meta) && ['extension', 'character', 'store_catalog'].includes(b.meta.category) ? b.meta.category : src.display;
+        if (want === 'store_catalog' && src.kind !== 'store_catalog') fail('选择“开局商店”时，项目里需要有开局商店目录（kind 为 store_catalog 的数据）：可以在项目概览的“分类”里添加');
+        if (want === 'extension' && src.kind === 'store_catalog') fail('项目里有开局商店目录，工坊会把它归为“开局商店”：请选择“开局商店”，或先删除那份数据');
+        const meta = checkMeta({ ...metaOf(src.project), ...(isObj(b.meta) ? metaOf({ ...src.project, ...b.meta, category: want === 'character' ? 'character' : 'extension' }) : {}) });
+        failIssues(src, '发布');
+        // 与官方客户端一致：正式作品都必须带封面
+        if (!src.cover) fail('工坊要求作品有封面：请先在项目概览里设置封面（PNG、JPEG 或 WebP，不超过 3 MB）');
         if (src.size > LIMITS.bundle) fail(`内容超过工坊 4 MB 的上传限制（当前 ${(src.size / 1048576).toFixed(2)} MB）`);
         const r = await request('/api/projects', { method: 'POST', body: meta, auth: true });
         setLink(src.project.id, r.project.id);
@@ -375,12 +400,13 @@ export async function handle(route, b = {}) {
       }
       case 'ws.upload': {
         const src = localSource(path.resolve(b.path));
+        failIssues(src, '上传');
         if (src.size > LIMITS.bundle) fail(`内容超过工坊 4 MB 的上传限制（当前 ${(src.size / 1048576).toFixed(2)} MB）`);
         const changelog = String(b.changelog || '').trim();
         if (changelog.length > LIMITS.changelog) fail('更新说明不能超过 2000 字');
         const body = JSON.stringify({ changelog, bundle: src.bundle });
         if (bytes(body) > LIMITS.request) fail('上传内容超过 5 MB 的请求上限');
-        if (b.syncMeta) await request(`/api/projects/${enc(b.id)}`, { method: 'PATCH', body: metaOf(src.project), auth: true });
+        if (b.syncMeta) await request(`/api/projects/${enc(b.id)}`, { method: 'PATCH', body: checkMeta(metaOf(src.project)), auth: true });
         if (b.cover && src.cover) await uploadCoverFrom(b.id, src.cover);
         const r = await request(`/api/projects/${enc(b.id)}/versions`, { method: 'POST', body, headers: { 'Content-Type': 'application/json' }, auth: true, timeout: 120000 });
         setLink(src.project.id, b.id);
@@ -388,7 +414,11 @@ export async function handle(route, b = {}) {
         if (b.submit && !r.auto_published) { await request(`/api/projects/${enc(b.id)}/submit`, { method: 'POST', auth: true }); submitted = true; }
         return { ok: true, version: Number(r.version) || 0, autoPublished: !!r.auto_published, submitted };
       }
-      case 'ws.update': return await request(`/api/projects/${enc(b.id)}`, { method: 'PATCH', body: b.fields || {}, auth: true });
+      case 'ws.update': {
+        const fl = isObj(b.fields) ? b.fields : {};
+        if ('name' in fl || 'summary' in fl || 'tags' in fl) checkMeta({ name: String(fl.name ?? 'x').trim(), summary: String(fl.summary ?? '').trim(), tags: normTags(fl.tags), dependencies: [] });
+        return await request(`/api/projects/${enc(b.id)}`, { method: 'PATCH', body: { ...fl, ...(fl.tags ? { tags: normTags(fl.tags) } : {}) }, auth: true });
+      }
       case 'ws.cover': return await uploadCoverFrom(b.id, b.file ? imageFile(path.resolve(b.file)) : core.coverOf(path.resolve(b.path)));
       case 'ws.submit': return await request(`/api/projects/${enc(b.id)}/submit`, { method: 'POST', auth: true });
       case 'ws.visibility': return await request(`/api/projects/${enc(b.id)}/visibility`, { method: 'POST', body: { hidden: !!b.hidden }, auth: true });
